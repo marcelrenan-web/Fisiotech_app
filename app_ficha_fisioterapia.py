@@ -1,5 +1,5 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
+from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, WebRtcMode # <<< ADICIONE ISSO
 import av
 import whisper
 import numpy as np
@@ -79,7 +79,7 @@ st.title("🩺 Ficha de Atendimento - Fisioterapia com IA")
 st.subheader("🎤 Fale e veja o texto ao vivo:")
 webrtc_streamer(
     key="microfone",
-    mode="SENDONLY",
+    mode=WebRtcMode.SENDONLY,
     audio_processor_factory=AudioProcessor,
     media_stream_constraints={"audio": True, "video": False},
 )
