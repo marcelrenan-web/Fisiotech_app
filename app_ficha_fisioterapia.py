@@ -20,7 +20,7 @@ def login():
     if st.button("Entrar"):
         if user == "fisioterapeuta" and pwd == "1234":
             st.session_state.logado = True
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("Usuário ou senha incorretos")
 
