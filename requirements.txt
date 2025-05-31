@@ -1,0 +1,3 @@
+streamlit
+streamlit_webrtc
+openai-whisper==20230918
