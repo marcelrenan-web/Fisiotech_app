@@ -1,4 +1,5 @@
 streamlit
 streamlit_webrtc
 openai-whisper==20230918
-av==10.0.0
+av==12.0.0 # O uv pode atualizar para 14.x, mas vamos manter o 12.0.0 fixado.
+numpy==1.26.4 # <<< Adicione esta linha para fixar o NumPy
