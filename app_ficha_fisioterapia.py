@@ -503,4 +503,22 @@ with st.form("form_ficha"):
             nome_arquivo = f"{pasta}/ficha_{nome.replace(' ', '_').lower()}_{data.strftime('%Y%m%d_%H%M%S')}.txt"
             
             # Salva os dados no arquivo de texto
-            with open(nome_arquivo, "w", encoding="utf-8") # <<< CORREÇÃO AQUI
+            # INÍCIO DA CORREÇÃO E ADIÇÃO DO BLOCO DE ESCRITA NO ARQUIVO
+            with open(nome_arquivo, "w", encoding="utf-8") as f:
+                f.write(f"FICHA DE ATENDIMENTO - FISIOTERAPIA\n")
+                f.write(f"------------------------------------\n\n")
+                f.write(f"Nome do Paciente: {nome}\n")
+                f.write(f"Idade: {idade}\n")
+                f.write(f"Data do Atendimento: {data.strftime('%d/%m/%Y')}\n\n")
+
+                f.write("Detalhes da Anamnese/Avaliação:\n")
+                for friendly_name, field_key in FORM_FIELDS_MAP.items():
+                    # st.session_state[field_key] contém o texto digitado/ditado para aquele campo
+                    f.write(f"- {friendly_name.replace('_', ' ').title()}: {st.session_state[field_key]}\n")
+                
+                f.write(f"\nObservações Gerais: {st.session_state.transcricao_geral}\n\n")
+                f.write(f"Diagnóstico Clínico: {diagnostico}\n\n")
+                f.write(f"Conduta Adotada: {conduta}\n")
+            # FIM DO BLOCO DE ESCRITA NO ARQUIVO
+
+            st.success(f"✅ Ficha do paciente {nome.title()} salva com sucesso em '{nome_arquivo}'!")
