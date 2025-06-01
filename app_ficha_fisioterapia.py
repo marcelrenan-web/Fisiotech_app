@@ -135,7 +135,7 @@ def corrigir_termos(texto):
         texto = texto.replace(errado, certo)
     return texto
 
-# --- Classe para Processamento de Áudio (Core da Transcrição e Comandos de Voz) ---
+# --- CLASSE PARA PROCESSAMENTO DE ÁUDIO (CORE DA TRANSCRIÇÃO E COMANDOS DE VOZ) ---
 class AudioProcessor(AudioProcessorBase):
     def __init__(self) -> None:
         self.buffer = b"" # Buffer para acumular áudio
@@ -145,7 +145,7 @@ class AudioProcessor(AudioProcessorBase):
         self.buffer += pcm
 
         # Processa o buffer a cada 5 segundos de áudio acumulado
-        if len(self.buffer) > 32000 * 5:  # 32000 samples/seg * 5 segundos
+        if len(self.buffer) > 32000 * 5: # 32000 samples/seg * 5 segundos
             audio_np = np.frombuffer(self.buffer, np.float32)
             audio_np = whisper.pad_or_trim(audio_np) # Ajusta o tamanho do áudio para o Whisper
             mel = whisper.log_mel_spectrogram(audio_np).to(model.device) # Converte para mel spectrogram
@@ -327,11 +327,23 @@ class AudioProcessor(AudioProcessorBase):
             self.buffer = b"" # Limpa o buffer de áudio para o próximo segmento
         return frame
 
+# --- NOVO: Função de callback para o estado da conexão do microfone ---
+def update_mic_status(state):
+    """Callback function to update microphone connection status in session state."""
+    if state.is_connected:
+        st.session_state.mic_status_message = "🟢 Microfone Conectado e Escutando"
+    else:
+        st.session_state.mic_status_message = "🔴 Microfone Desconectado"
+    # Note: st.rerun() is generally not recommended inside webrtc callbacks
+    # as it can lead to recursive reruns or unexpected behavior.
+    # The UI will update naturally on subsequent Streamlit runs (e.g., user interaction).
+
 # --- Estrutura da Interface do Streamlit (UI) ---
 st.title("🩺 Ficha de Atendimento - Fisioterapia com IA")
 
-# --- Seção: Gerenciamento de Fichas PDF Modelo ---
-st.subheader("📁 Gerenciamento de Fichas PDF Modelo")
+---
+
+## 📁 Gerenciamento de Fichas PDF Modelo
 
 with st.expander("Upload e Nomeação de Novas Fichas PDF"):
     st.write("Faça upload de um PDF com um modelo de ficha (somente texto simples) e dê um nome amigável a ele para acesso futuro via comando de voz. Ex: 'Ficha de Anamnese', 'Avaliação Ortopédica'.")
@@ -377,10 +389,9 @@ with st.expander("Upload e Nomeação de Novas Fichas PDF"):
     else:
         st.info("Nenhuma ficha de paciente de exemplo disponível.")
 
-st.markdown("---") # Separador visual
+---
 
-# --- Seção de Controle de Microfone e Transcrição ---
-st.subheader("🎤 Controle de Microfone e Transcrição")
+## 🎤 Controle de Microfone e Transcrição
 
 # NOVO: Configuração para melhorar a conexão WebRTC (opcional, mas recomendado)
 RTC_CONFIGURATION = RTCConfiguration(
@@ -393,10 +404,8 @@ webrtc_streamer(
     audio_processor_factory=AudioProcessor, # Nossa classe customizada para processar o áudio
     media_stream_constraints={"audio": True, "video": False}, # Captura apenas áudio
     rtc_configuration=RTC_CONFIGURATION, # Aplica a configuração STUN
-    # NOVO: Callback para atualizar o estado da conexão do microfone
-    on_connection_state_changed=lambda state: st.session_state.update(
-        mic_status_message="🟢 Microfone Conectado e Escutando" if state.is_connected else "🔴 Microfone Desconectado"
-    )
+    # CORREÇÃO AQUI: Passa a função de callback diretamente
+    on_connection_state_changed=update_mic_status
 )
 
 # NOVO: Exibe o status da conexão do microfone
@@ -445,10 +454,9 @@ if st.session_state.tipo_ficha_aberta or st.session_state.transcricao_geral or a
             st.session_state[key] = ""
         st.rerun()
 
-st.markdown("---") # Separador visual
+---
 
-# --- Formulário de Preenchimento da Ficha ---
-st.subheader("📋 Preencha os dados do atendimento")
+## 📋 Preencha os dados do atendimento
 
 with st.form("form_ficha"):
     # Preenchimento inicial do nome do paciente e idade (se um paciente estiver ativo)
@@ -503,7 +511,6 @@ with st.form("form_ficha"):
             nome_arquivo = f"{pasta}/ficha_{nome.replace(' ', '_').lower()}_{data.strftime('%Y%m%d_%H%M%S')}.txt"
             
             # Salva os dados no arquivo de texto
-            # INÍCIO DA CORREÇÃO E ADIÇÃO DO BLOCO DE ESCRITA NO ARQUIVO
             with open(nome_arquivo, "w", encoding="utf-8") as f:
                 f.write(f"FICHA DE ATENDIMENTO - FISIOTERAPIA\n")
                 f.write(f"------------------------------------\n\n")
@@ -519,6 +526,5 @@ with st.form("form_ficha"):
                 f.write(f"\nObservações Gerais: {st.session_state.transcricao_geral}\n\n")
                 f.write(f"Diagnóstico Clínico: {diagnostico}\n\n")
                 f.write(f"Conduta Adotada: {conduta}\n")
-            # FIM DO BLOCO DE ESCRITA NO ARQUIVO
 
             st.success(f"✅ Ficha do paciente {nome.title()} salva com sucesso em '{nome_arquivo}'!")
