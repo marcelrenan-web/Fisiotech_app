@@ -373,7 +373,7 @@ with st.expander("Upload e Nomeação de Novas Fichas PDF"):
         for paciente, fichas in st.session_state.pacientes.items():
             st.write(f"**{paciente.title()}:**")
             for tipo_ficha in fichas.keys():
-                st.write(f"  - {tipo_ficha.title()}")
+                st.write(f"  - {tipo_ficha.title()}")
     else:
         st.info("Nenhuma ficha de paciente de exemplo disponível.")
 
@@ -503,4 +503,4 @@ with st.form("form_ficha"):
             nome_arquivo = f"{pasta}/ficha_{nome.replace(' ', '_').lower()}_{data.strftime('%Y%m%d_%H%M%S')}.txt"
             
             # Salva os dados no arquivo de texto
-            with open(nome_arquivo, "w", encoding="utf
+            with open(nome_arquivo, "w", encoding="utf-8") # <<< CORREÇÃO AQUI
