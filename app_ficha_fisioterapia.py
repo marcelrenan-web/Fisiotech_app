@@ -341,7 +341,7 @@ def update_mic_status(state):
 # --- Estrutura da Interface do Streamlit (UI) ---
 st.title("🩺 Ficha de Atendimento - Fisioterapia com IA")
 
-st.markdown("---") # Separador visual para a interface
+---
 
 ## 📁 Gerenciamento de Fichas PDF Modelo
 
@@ -389,7 +389,7 @@ with st.expander("Upload e Nomeação de Novas Fichas PDF"):
     else:
         st.info("Nenhuma ficha de paciente de exemplo disponível.")
 
-st.markdown("---") # Separador visual
+---
 
 ## 🎤 Controle de Microfone e Transcrição
 
@@ -454,7 +454,7 @@ if st.session_state.tipo_ficha_aberta or st.session_state.transcricao_geral or a
             st.session_state[key] = ""
         st.rerun()
 
-st.markdown("---") # Separador visual
+---
 
 ## 📋 Preencha os dados do atendimento
 
