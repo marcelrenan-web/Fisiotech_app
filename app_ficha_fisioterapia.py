@@ -1,5 +1,5 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, WebRtcMode
+from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, WebRtcMode, RTCConfiguration
 import av
 import whisper
 import numpy as np
@@ -73,6 +73,14 @@ if "last_transcription_segment" not in st.session_state:
 if "active_form_field" not in st.session_state:
     st.session_state.active_form_field = None # Nenhum campo ativo inicialmente
 
+# NOVO: Estado para controlar se a anotação por voz está ativa ou pausada
+if "listening_active" not in st.session_state:
+    st.session_state.listening_active = True # Começa escutando
+
+# NOVO: Estado para a mensagem de status do microfone
+if "mic_status_message" not in st.session_state:
+    st.session_state.mic_status_message = "🔴 Microfone Desconectado"
+
 # Inicializa todos os campos do formulário definidos em FORM_FIELDS_MAP
 for key in FORM_FIELDS_MAP.values():
     if key not in st.session_state:
@@ -99,8 +107,14 @@ if not st.session_state.logado:
 @st.cache_resource
 def carregar_modelo():
     st.info("Carregando modelo Whisper (pode levar alguns segundos)...")
-    model = whisper.load_model("base") # Carrega o modelo "base" do Whisper
-    st.success("Modelo Whisper carregado!")
+    # Tenta carregar o modelo "base.en" primeiro, depois "base"
+    try:
+        model = whisper.load_model("base.en") # Pode ser mais leve e suficiente para comandos em inglês
+        st.success("Modelo Whisper 'base.en' carregado!")
+    except Exception as e:
+        st.warning(f"Não foi possível carregar 'base.en': {e}. Tentando 'base' (maior).")
+        model = whisper.load_model("base") # Carrega o modelo "base" do Whisper
+        st.success("Modelo Whisper 'base' carregado!")
     return model
 
 model = carregar_modelo()
@@ -145,16 +159,35 @@ class AudioProcessor(AudioProcessorBase):
             comando_processado = False
             texto_transcrito_lower = texto_transcrito_segmento.lower() # Para facilitar a comparação de comandos
 
+            # --- NOVO: Lógica de Comandos de Pausa/Retomada ---
+            if "pausar anotação" in texto_transcrito_lower:
+                st.session_state.listening_active = False
+                st.session_state.last_transcription_segment = "" # Limpa para não mostrar o comando
+                # Não st.rerun() aqui, o feedback será dado pela UI
+                comando_processado = True
+            elif "retomar anotação" in texto_transcrito_lower:
+                st.session_state.listening_active = True
+                st.session_state.last_transcription_segment = "" # Limpa para não mostrar o comando
+                # Não st.rerun() aqui, o feedback será dado pela UI
+                comando_processado = True
+
             # --- Lógica de Comandos de Voz de Abertura de Ficha ---
+            # Estes comandos ainda forçarão um rerun, causando uma pequena interrupção no áudio.
+            # É uma limitação atual para garantir que a UI se atualize com a nova ficha.
 
             # Comando: "abrir ficha de [tipo da ficha padrão]" ou "mostrar [tipo da ficha padrão]"
             match_abrir_ficha_padrao = re.search(r"(?:abrir|mostrar) ficha de (.+)", texto_transcrito_lower)
-            if match_abrir_ficha_padrao:
+            if match_abrir_ficha_padrao and not comando_processado:
                 ficha_solicitada = match_abrir_ficha_padrao.group(1).strip()
                 if ficha_solicitada in st.session_state.fichas_pdf:
                     st.session_state.paciente_atual = None # Reseta o paciente atual ao abrir ficha padrão
                     st.session_state.tipo_ficha_aberta = ficha_solicitada # Define o tipo de ficha aberta
                     st.session_state.transcricao_geral = st.session_state.fichas_pdf[ficha_solicitada] # Carrega o texto da ficha no campo geral
+                    
+                    # NOVO: Ao abrir uma ficha padrão, resetar os campos específicos do formulário
+                    for key in FORM_FIELDS_MAP.values():
+                        st.session_state[key] = "" 
+                    
                     st.session_state.active_form_field = None # Reseta campo de formulário ativo
                     st.success(f"Ficha padrão '{ficha_solicitada.title()}' aberta e texto carregado!")
                     st.rerun() # Força a atualização da UI
@@ -181,7 +214,14 @@ class AudioProcessor(AudioProcessorBase):
                     if tipo_ficha_falado in st.session_state.pacientes[found_patient]:
                         st.session_state.paciente_atual = found_patient
                         st.session_state.tipo_ficha_aberta = tipo_ficha_falado
+                        # NOVO: Carrega o texto da ficha do paciente diretamente para o campo geral para o prazo de hoje.
+                        # O mapeamento para campos específicos é mais complexo.
                         st.session_state.transcricao_geral = st.session_state.pacientes[found_patient][tipo_ficha_falado]
+                        
+                        # NOVO: Limpa os campos específicos do formulário ao abrir ficha de paciente
+                        for key in FORM_FIELDS_MAP.values():
+                            st.session_state[key] = ""
+                        
                         st.session_state.active_form_field = None # Reseta campo de formulário ativo
                         st.success(f"Ficha '{tipo_ficha_falado.title()}' do paciente '{found_patient.title()}' aberta e texto carregado!")
                         st.rerun()
@@ -199,9 +239,17 @@ class AudioProcessor(AudioProcessorBase):
                 tipo_nova_ficha = match_nova_ficha.group(1).strip()
                 st.session_state.paciente_atual = None
                 st.session_state.tipo_ficha_aberta = f"Nova: {tipo_nova_ficha}"
-                st.session_state.transcricao_geral = f"Iniciando nova ficha de {tipo_nova_ficha.title()}. Por favor, dite o conteúdo."
-                st.session_state.active_form_field = None # Reseta campo de formulário ativo
-                st.info(f"Preparando para nova ficha: '{tipo_nova_ficha.title()}'. Comece a ditar.")
+                st.session_state.transcricao_geral = "" # Zera a transcrição geral para nova ficha
+                
+                # NOVO: Zera todos os campos do formulário para nova ficha
+                for key in FORM_FIELDS_MAP.values():
+                    st.session_state[key] = ""
+                
+                st.session_state.active_form_field = FORM_FIELDS_ORDER[0] if FORM_FIELDS_ORDER else None # Ativa o primeiro campo
+                if st.session_state.active_form_field:
+                    st.info(f"Preparando para nova ficha: '{tipo_nova_ficha.title()}'. Comece a ditar no campo **{st.session_state.active_form_field.replace('_', ' ').title()}**.")
+                else:
+                    st.info(f"Preparando para nova ficha: '{tipo_nova_ficha.title()}'. Não há campos definidos. Dite em observações gerais.")
                 st.rerun()
                 comando_processado = True
 
@@ -220,10 +268,10 @@ class AudioProcessor(AudioProcessorBase):
                 
                 if found_field_key:
                     st.session_state.active_form_field = found_field_key
-                    st.info(f"🎤 Ativo para ditado: **{found_field_key.replace('_', ' ').title()}**")
+                    # st.info já é atualizado na UI, não precisamos de rerun aqui se o estado já foi setado
                     comando_processado = True
                     st.session_state.last_transcription_segment = "" # Limpa o segmento para não adicionar o comando ao campo
-                    st.rerun() # Força a atualização da interface para mostrar o campo ativo
+                    st.rerun() # Ainda necessário para forçar o destaque visual do campo
                 else:
                     st.warning(f"Campo '{campo_falado.title()}' não reconhecido. Tente novamente.")
                     comando_processado = True # Considera o comando processado (mas com erro)
@@ -235,7 +283,6 @@ class AudioProcessor(AudioProcessorBase):
                         current_index = FORM_FIELDS_ORDER.index(st.session_state.active_form_field)
                         next_index = (current_index + 1) % len(FORM_FIELDS_ORDER) # Navega para o próximo, ou volta ao início
                         st.session_state.active_form_field = FORM_FIELDS_ORDER[next_index]
-                        st.info(f"🎤 Ativo para ditado: **{st.session_state.active_form_field.replace('_', ' ').title()}**")
                         comando_processado = True
                         st.session_state.last_transcription_segment = ""
                         st.rerun()
@@ -246,7 +293,6 @@ class AudioProcessor(AudioProcessorBase):
                     # Se não há campo ativo, ativa o primeiro da lista
                     if FORM_FIELDS_ORDER:
                         st.session_state.active_form_field = FORM_FIELDS_ORDER[0]
-                        st.info(f"🎤 Ativo para ditado: **{st.session_state.active_form_field.replace('_', ' ').title()}**")
                         comando_processado = True
                         st.session_state.last_transcription_segment = ""
                         st.rerun()
@@ -259,7 +305,7 @@ class AudioProcessor(AudioProcessorBase):
                 if st.session_state.active_form_field:
                     st.success(f"✅ Finalizado ditado para: **{st.session_state.active_form_field.replace('_', ' ').title()}**")
                     st.session_state.active_form_field = None # Desativa o campo
-                    st.info("🎤 Voltando para ditado geral. Para preencher um campo específico, diga 'Preencher [Nome do Campo]'.")
+                    # st.info("🎤 Voltando para ditado geral. Para preencher um campo específico, diga 'Preencher [Nome do Campo]'.")
                     comando_processado = True
                     st.session_state.last_transcription_segment = ""
                     st.rerun()
@@ -269,7 +315,8 @@ class AudioProcessor(AudioProcessorBase):
 
             # --- Lógica de Transcrição Normal (Ditado de Conteúdo) ---
             # O texto transcrito é adicionado ou ao campo ativo ou à transcrição geral
-            if not comando_processado and texto_transcrito_segmento:
+            # APENAS SE A ANOTAÇÃO ESTIVER ATIVA e NÃO FOR UM COMANDO
+            if not comando_processado and texto_transcrito_segmento and st.session_state.listening_active:
                 if st.session_state.active_form_field:
                     # Adiciona o texto ao campo de formulário atualmente ativo
                     st.session_state[st.session_state.active_form_field] += texto_transcrito_segmento + " "
@@ -326,7 +373,7 @@ with st.expander("Upload e Nomeação de Novas Fichas PDF"):
         for paciente, fichas in st.session_state.pacientes.items():
             st.write(f"**{paciente.title()}:**")
             for tipo_ficha in fichas.keys():
-                st.write(f"  - {tipo_ficha.title()}")
+                st.write(f"  - {tipo_ficha.title()}")
     else:
         st.info("Nenhuma ficha de paciente de exemplo disponível.")
 
@@ -334,16 +381,35 @@ st.markdown("---") # Separador visual
 
 # --- Seção de Controle de Microfone e Transcrição ---
 st.subheader("🎤 Controle de Microfone e Transcrição")
+
+# NOVO: Configuração para melhorar a conexão WebRTC (opcional, mas recomendado)
+RTC_CONFIGURATION = RTCConfiguration(
+    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+)
+
 webrtc_streamer(
     key="microfone",
     mode=WebRtcMode.SENDONLY, # Modo SENDONLY: Envia áudio do microfone para o processador
     audio_processor_factory=AudioProcessor, # Nossa classe customizada para processar o áudio
     media_stream_constraints={"audio": True, "video": False}, # Captura apenas áudio
+    rtc_configuration=RTC_CONFIGURATION, # Aplica a configuração STUN
+    # NOVO: Callback para atualizar o estado da conexão do microfone
+    on_connection_state_changed=lambda state: st.session_state.update(
+        mic_status_message="🟢 Microfone Conectado e Escutando" if state.is_connected else "🔴 Microfone Desconectado"
+    )
 )
 
-# Exibe o último segmento transcrito para feedback imediato ao usuário
-if st.session_state.last_transcription_segment:
-    st.markdown(f"**Última fala:** *{st.session_state.last_transcription_segment}*")
+# NOVO: Exibe o status da conexão do microfone
+st.markdown(f"**Status da Conexão do Microfone:** {st.session_state.mic_status_message}")
+
+# Exibe o status da anotação (pausada ou ativa)
+if not st.session_state.listening_active:
+    st.warning("⏸️ Anotação Pausada. Diga 'Retomar anotação' para continuar a ditar.")
+else:
+    # Exibe o último segmento transcrito para feedback imediato ao usuário
+    if st.session_state.last_transcription_segment:
+        st.markdown(f"**Última fala:** *{st.session_state.last_transcription_segment}*")
+
 
 # Exibe qual ficha (modelo ou de paciente) está ativa e o paciente atual
 if st.session_state.tipo_ficha_aberta:
@@ -360,6 +426,9 @@ else:
     st.markdown("- **\"Preencher [Nome do Campo]\"** (ex: \"Preencher sono\")")
     st.markdown("- **\"Próximo campo\"**")
     st.markdown("- **\"Finalizar campo\"** ou **\"Parar preenchimento\"**")
+    st.markdown("- **\"Pausar anotação\"**")
+    st.markdown("- **\"Retomar anotação\"**")
+
 
 # Botão para fechar a ficha atual / limpar toda a transcrição e estados
 if st.session_state.tipo_ficha_aberta or st.session_state.transcricao_geral or any(st.session_state[key] for key in FORM_FIELDS_MAP.values()):
@@ -369,6 +438,8 @@ if st.session_state.tipo_ficha_aberta or st.session_state.transcricao_geral or a
         st.session_state.transcricao_geral = ""
         st.session_state.active_form_field = None
         st.session_state.last_transcription_segment = ""
+        st.session_state.listening_active = True # Reseta para ativo ao limpar
+        st.session_state.mic_status_message = "🔴 Microfone Desconectado" # Reseta o status
         # Limpa todos os campos do formulário
         for key in FORM_FIELDS_MAP.values():
             st.session_state[key] = ""
@@ -432,26 +503,4 @@ with st.form("form_ficha"):
             nome_arquivo = f"{pasta}/ficha_{nome.replace(' ', '_').lower()}_{data.strftime('%Y%m%d_%H%M%S')}.txt"
             
             # Salva os dados no arquivo de texto
-            with open(nome_arquivo, "w", encoding="utf-8") as f:
-                f.write(f"Paciente: {nome}\n")
-                f.write(f"Idade: {idade} anos\n")
-                f.write(f"Data: {data.strftime('%d/%m/%Y')}\n")
-                f.write("\n--- Detalhes da Anamnese/Avaliação ---\n")
-                # Escreve o conteúdo de cada campo do formulário
-                for friendly_name, field_key in FORM_FIELDS_MAP.items():
-                    f.write(f"{friendly_name.replace('_', ' ').title()}: {st.session_state[field_key]}\n")
-                f.write(f"\nObservações Gerais: {st.session_state.transcricao_geral}\n")
-                f.write(f"\nDiagnóstico: {diagnostico}\n")
-                f.write(f"Conduta: {conduta}\n")
-            
-            st.success(f"✅ Ficha salva com sucesso em '{nome_arquivo}'!")
-            
-            # Limpa todos os estados da sessão e campos após salvar para preparar nova ficha
-            for key in FORM_FIELDS_MAP.values():
-                st.session_state[key] = ""
-            st.session_state.transcricao_geral = ""
-            st.session_state.tipo_ficha_aberta = None
-            st.session_state.paciente_atual = None
-            st.session_state.active_form_field = None
-            st.session_state.last_transcription_segment = ""
-            st.rerun() # Força a atualização da interface para limpar os campos
+            with open(nome_arquivo, "w", encoding="utf
