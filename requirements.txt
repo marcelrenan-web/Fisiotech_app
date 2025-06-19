@@ -4,3 +4,5 @@ openai-whisper==20230918
 av==12.0.0
 numpy==1.26.4
 pdfplumber
+PyMuPDF
+Pillow
