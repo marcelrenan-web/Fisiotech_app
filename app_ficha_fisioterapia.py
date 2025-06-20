@@ -234,18 +234,16 @@ else:
                         file_path_to_open = st.session_state.uploaded_fichas_data[ficha_solicitada]["path"]
                     
                     if file_path_to_open:
-                        # Carregamento de texto (não usado para o campo editável, mas pode ser útil para outras coisas)
                         if file_path_to_open not in st.session_state.fichas_pdf_content_cache:
                             st.session_state.fichas_pdf_content_cache[file_path_to_open] = read_pdf_text(file_path_to_open)
                         
-                        # Carregamento das imagens do PDF
                         if file_path_to_open not in st.session_state.fichas_pdf_images_cache:
                             st.session_state.fichas_pdf_images_cache[file_path_to_open] = get_pdf_images(file_path_to_open)
                         st.session_state.current_pdf_images = st.session_state.fichas_pdf_images_cache[file_path_to_open]
 
                         st.session_state.paciente_atual = None
                         st.session_state.tipo_ficha_aberta = ficha_solicitada
-                        st.session_state.transcricao_geral = "" # Zera para as respostas
+                        st.session_state.transcricao_geral = ""
                         
                         for key in FORM_FIELDS_MAP.values():
                             st.session_state[key] = "" 
@@ -431,25 +429,29 @@ else:
         st.subheader("Abrir Ficha Modelo (PDF)")
         
         # Combinar as listas de fichas padrão e uploadadas para o selectbox
-        # Use um dicionário temporário para evitar nomes duplicados, priorizando uploaded se houver conflito
         all_template_fichas = {}
         # Adiciona fichas padrão
         for name, path in st.session_state.fichas_padrao_paths.items():
             if os.path.exists(path):
                 all_template_fichas[name.lower()] = {"name": name, "path": path}
             else:
-                st.warning(f"Ficha Padrão '{name.title()}' não encontrada em '{path}'.")
-
+                pass # Não exibe warning para fichas padrão ausentes na UI, apenas no código de inicialização
+        
         # Adiciona fichas uploadadas, sobrescrevendo se houver conflito de nome
+        # Também remove entradas de fichas uploadadas que não existem mais no disco
+        keys_to_remove = []
         for key, info in st.session_state.uploaded_fichas_data.items():
             if os.path.exists(info['path']):
                 all_template_fichas[key] = info # Key já está em lower()
             else:
-                st.warning(f"Ficha Modelo '{info['name']}' não encontrada em '{info['path']}'. Será removida da lista.")
-                # Opcional: remover do índice se o arquivo não existe
-                del st.session_state.uploaded_fichas_data[key]
-                save_uploaded_templates_index(st.session_state.uploaded_fichas_data)
-                st.rerun() # Recarrega para refletir a remoção
+                keys_to_remove.append(key) # Marca para remoção
+        
+        for key in keys_to_remove:
+            st.warning(f"Ficha Modelo '{st.session_state.uploaded_fichas_data[key]['name']}' não encontrada em '{st.session_state.uploaded_fichas_data[key]['path']}'. Será removida da lista.")
+            del st.session_state.uploaded_fichas_data[key]
+        if keys_to_remove:
+            save_uploaded_templates_index(st.session_state.uploaded_fichas_data)
+            st.rerun() # Recarrega para refletir as remoções
         
         template_ficha_options = [""] + sorted([info["name"].title() for info in all_template_fichas.values()])
         selected_template_ficha_name = st.selectbox(
@@ -458,8 +460,7 @@ else:
             key="select_template_ficha"
         )
 
-        if selected_template_ficha_name and st.button(f"Abrir Ficha Modelo '{selected_template_ficha_name}'", key="btn_open_selected_template"):
-            # Encontrar o path correto da ficha selecionada
+        if selected_template_ficha_name and st.button(f"Abrir Ficha Modelo", key="btn_open_selected_template"): # Botão mais genérico
             selected_ficha_path = None
             for key, info in all_template_fichas.items():
                 if info["name"].lower() == selected_template_ficha_name.lower():
@@ -605,7 +606,7 @@ else:
             st.subheader("Visualização da Ficha (Guia)")
             for i, img in enumerate(st.session_state.current_pdf_images):
                 st.image(img, caption=f"Página {i+1} do PDF", use_column_width=True)
-            st.markdown("---") # Separador visual
+            st.markdown("---")
 
         # Os campos específicos do formulário e o campo geral abaixo das imagens do PDF
         for friendly_name_display, field_key in FORM_FIELDS_MAP.items():
@@ -658,7 +659,6 @@ else:
                 st.warning("Não há ficha aberta ou conteúdo para salvar. Por favor, preencha algo.")
 
         st.markdown("---")
-        # Visualizador/Abridor de Fichas Preenchidas
         st.subheader("Acessar Fichas Preenchidas Salvas")
         
         saved_records = [f for f in os.listdir(SAVED_RECORDS_DIR) if f.endswith('.json')]
