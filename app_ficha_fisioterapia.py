@@ -434,11 +434,9 @@ else:
         for name, path in st.session_state.fichas_padrao_paths.items():
             if os.path.exists(path):
                 all_template_fichas[name.lower()] = {"name": name, "path": path}
-            else:
-                pass # Não exibe warning para fichas padrão ausentes na UI, apenas no código de inicialização
+            # else: Não exibe warning para fichas padrão ausentes na UI, apenas no código de inicialização
         
         # Adiciona fichas uploadadas, sobrescrevendo se houver conflito de nome
-        # Também remove entradas de fichas uploadadas que não existem mais no disco
         keys_to_remove = []
         for key, info in st.session_state.uploaded_fichas_data.items():
             if os.path.exists(info['path']):
@@ -460,7 +458,7 @@ else:
             key="select_template_ficha"
         )
 
-        if selected_template_ficha_name and st.button(f"Abrir Ficha Modelo", key="btn_open_selected_template"): # Botão mais genérico
+        if selected_template_ficha_name and st.button(f"Abrir Ficha Modelo Selecionada", key="btn_open_selected_template"): # Botão mais claro
             selected_ficha_path = None
             for key, info in all_template_fichas.items():
                 if info["name"].lower() == selected_template_ficha_name.lower():
@@ -644,90 +642,3 @@ else:
                     "paciente": st.session_state.paciente_atual,
                     "data_preenchimento": datetime.now().isoformat(),
                     "observacoes_gerais": st.session_state.transcricao_geral,
-                    "campos_especificos": {friendly_name: st.session_state[field_key] for friendly_name, field_key in FORM_FIELDS_MAP.items()},
-                    "modelo_pdf_usado_path": st.session_state.fichas_padrao_paths.get(st.session_state.tipo_ficha_aberta) 
-                                            or (st.session_state.uploaded_fichas_data.get(st.session_state.tipo_ficha_aberta.lower()) and st.session_state.uploaded_fichas_data[st.session_state.tipo_ficha_aberta.lower()]["path"])
-                }
-
-                try:
-                    with open(record_path, "w", encoding="utf-8") as f:
-                        json.dump(ficha_data, f, indent=4, ensure_ascii=False)
-                    st.success(f"Ficha preenchida salva como: {record_id}")
-                except Exception as e:
-                    st.error(f"Erro ao salvar a ficha preenchida: {e}")
-            else:
-                st.warning("Não há ficha aberta ou conteúdo para salvar. Por favor, preencha algo.")
-
-        st.markdown("---")
-        st.subheader("Acessar Fichas Preenchidas Salvas")
-        
-        saved_records = [f for f in os.listdir(SAVED_RECORDS_DIR) if f.endswith('.json')]
-        if saved_records:
-            display_names = []
-            for record_file in saved_records:
-                try:
-                    record_path = os.path.join(SAVED_RECORDS_DIR, record_file)
-                    with open(record_path, 'r', encoding='utf-8') as f:
-                        temp_data = json.load(f)
-                    display_name = temp_data.get("tipo_ficha", "Desconhecido")
-                    patient_name = temp_data.get("paciente", "Sem Paciente")
-                    data_preenchimento = datetime.fromisoformat(temp_data.get("data_preenchimento")).strftime("%d/%m/%Y %H:%M")
-                    display_names.append(f"{display_name} ({patient_name}) - {data_preenchimento} [{record_file}]")
-                except Exception:
-                    display_names.append(f"{record_file} (Erro ao ler)")
-            
-            selected_display_name = st.selectbox("Selecione uma ficha salva para carregar:", 
-                                                 [""] + display_names, 
-                                                 key="select_saved_record")
-            
-            selected_record_file = None
-            if selected_display_name:
-                match = re.search(r'\[(.*?)\]$', selected_display_name)
-                if match:
-                    selected_record_file = match.group(1)
-
-            if selected_record_file and st.button("Carregar Ficha Salva", key="btn_load_saved_record"):
-                record_path = os.path.join(SAVED_RECORDS_DIR, selected_record_file)
-                try:
-                    with open(record_path, 'r', encoding='utf-8') as f:
-                        loaded_data = json.load(f)
-                    
-                    st.session_state.transcricao_geral = loaded_data.get("observacoes_gerais", "")
-                    for friendly_name, field_key in FORM_FIELDS_MAP.items():
-                        st.session_state[field_key] = loaded_data.get("campos_especificos", {}).get(friendly_name, "")
-                    
-                    st.session_state.tipo_ficha_aberta = loaded_data.get("tipo_ficha", "Ficha Salva")
-                    st.session_state.paciente_atual = loaded_data.get("paciente")
-                    
-                    model_path = loaded_data.get("modelo_pdf_usado_path")
-                    if model_path and os.path.exists(model_path):
-                         if model_path not in st.session_state.fichas_pdf_images_cache:
-                            st.session_state.fichas_pdf_images_cache[model_path] = get_pdf_images(model_path)
-                         st.session_state.current_pdf_images = st.session_state.fichas_pdf_images_cache[model_path]
-                    else:
-                        st.session_state.current_pdf_images = []
-
-                    st.success(f"Ficha '{selected_record_file}' carregada com sucesso!")
-                    st.rerun()
-
-                except Exception as e:
-                    st.error(f"Erro ao carregar ficha salva: {e}")
-        else:
-            st.info("Nenhuma ficha preenchida salva ainda.")
-
-
-    webrtc_ctx = webrtc_streamer(
-        key="fisioterapia_voice_assistant",
-        mode=WebRtcMode.SENDONLY,
-        audio_processor_factory=AudioProcessor,
-        media_stream_constraints={"video": False, "audio": True},
-        rtc_configuration=RTCConfiguration(
-            {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-        ),
-        async_processing=True,
-    )
-
-    if webrtc_ctx.state.playing:
-        st.session_state.mic_status_message = "🟢 Microfone Conectado (Escutando)"
-    else:
-        st.session_state.mic_status_message = "🔴 Microfone Desconectado (Aguardando Conexão)"
