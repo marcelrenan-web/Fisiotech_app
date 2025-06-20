@@ -267,4 +267,4 @@ else:
                     
                     found_patient = None
                     for p_name_db in st.session_state.pacientes:
-                        if nome_paciente_falado in p
+                        if nome_paciente_falado in p_name_db:
