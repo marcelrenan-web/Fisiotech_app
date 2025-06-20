@@ -31,7 +31,6 @@ FORM_FIELDS_MAP = {
 FORM_FIELDS_ORDER = list(FORM_FIELDS_MAP.values())
 
 # --- Caminhos para Armazenamento ---
-# Ajustado para usar 'dados/' conforme sua estrutura de pastas no GitHub
 UPLOADED_TEMPLATES_DIR = "dados/uploaded_fichas_templates"
 UPLOADED_TEMPLATES_INDEX_FILE = "dados/uploaded_fichas_index.json"
 SAVED_RECORDS_DIR = "dados/saved_patient_records" # Para fichas preenchidas
@@ -61,6 +60,7 @@ if "logado" not in st.session_state:
     st.session_state.logado = False
 
 # Fichas padrão (as que vêm com o app, ex: a de avaliação que você enviou)
+# O path continua aqui, mas a exibição na UI será via selectbox
 if "fichas_padrao_paths" not in st.session_state:
     st.session_state.fichas_padrao_paths = {
         "ficha de anamnese": "ficha_anamnese_padrao_exemplo.pdf", # Placeholder: se você tiver este PDF, coloque na raiz
@@ -119,7 +119,6 @@ for key in FORM_FIELDS_MAP.values():
 @st.cache_data(show_spinner="Extraindo texto do PDF...")
 def read_pdf_text(file_path):
     if not os.path.exists(file_path):
-        #st.error(f"Erro: Arquivo PDF não encontrado em '{file_path}'") # Comentar para evitar erro em ficheiro opcional
         return ""
     text = ""
     try:
@@ -134,7 +133,6 @@ def read_pdf_text(file_path):
 @st.cache_data(show_spinner="Preparando visualização do PDF...")
 def get_pdf_images(file_path):
     if not os.path.exists(file_path):
-        #st.error(f"Erro: Arquivo PDF não encontrado em '{file_path}'") # Comentar para evitar erro em ficheiro opcional
         return []
     images = []
     try:
@@ -267,7 +265,6 @@ else:
                     
                     found_patient = None
                     for p_name_db in st.session_state.pacientes:
-                        # CORRIGIDO: Adicionado ':' e garantido 'p_name_db'
                         if nome_paciente_falado in p_name_db:
                             found_patient = p_name_db
                             break
@@ -401,35 +398,13 @@ else:
     with col1:
         st.header("Opções de Ficha")
 
-        st.subheader("Fichas Padrão do Sistema")
-        # Itera sobre os caminhos de PDF padrão
-        for ficha_name, file_path in st.session_state.fichas_padrao_paths.items():
-            # Verifica se o arquivo PDF existe antes de criar o botão para ele
-            if os.path.exists(file_path):
-                if st.button(f"Abrir {ficha_name.title()} (PDF Padrão)", key=f"btn_open_pdf_padrao_{ficha_name}"):
-                    if file_path not in st.session_state.fichas_pdf_images_cache:
-                        st.session_state.fichas_pdf_images_cache[file_path] = get_pdf_images(file_path)
-                    st.session_state.current_pdf_images = st.session_state.fichas_pdf_images_cache[file_path]
-
-                    st.session_state.paciente_atual = None
-                    st.session_state.tipo_ficha_aberta = ficha_name
-                    st.session_state.transcricao_geral = "" # Zera para as respostas
-                    for key in FORM_FIELDS_MAP.values():
-                        st.session_state[key] = ""
-                    st.session_state.active_form_field = None
-                    st.success(f"Ficha padrão '{ficha_name.title()}' aberta. Veja o PDF como guia e insira as respostas abaixo.")
-                    st.rerun()
-            else:
-                st.warning(f"Ficha Padrão '{ficha_name.title()}' não encontrada em '{file_path}'.")
-
+        # --- SEÇÃO DE UPLOAD DE FICHAS MODELO ---
         st.subheader("Upload de Nova Ficha Modelo (PDF)")
         uploaded_file = st.file_uploader("Escolha um arquivo PDF para upload", type="pdf")
         new_ficha_name = st.text_input("Nome para esta nova ficha modelo (Ex: 'Ficha de Coluna')", key="new_uploaded_ficha_name")
         
-        # Botão para salvar o arquivo uploaded
         if uploaded_file is not None and new_ficha_name:
             if st.button("Salvar Ficha Modelo Uploaded", key="btn_save_uploaded_template"):
-                # Garante um nome de arquivo único
                 sanitized_name = re.sub(r'[^a-zA-Z0-9_.-]', '', new_ficha_name.lower().replace(" ", "_"))
                 file_ext = os.path.splitext(uploaded_file.name)[1]
                 save_path = os.path.join(UPLOADED_TEMPLATES_DIR, f"{sanitized_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}{file_ext}")
@@ -444,89 +419,113 @@ else:
                     }
                     save_uploaded_templates_index(st.session_state.uploaded_fichas_data)
                     st.success(f"Ficha modelo '{new_ficha_name}' salva e pronta para uso!")
-                    st.rerun() # Recarrega para mostrar a nova ficha na lista
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao salvar o arquivo: {e}")
         elif uploaded_file is None and new_ficha_name:
             st.warning("Por favor, selecione um arquivo PDF antes de salvar a ficha modelo.")
 
+        st.markdown("---")
 
-        st.subheader("Fichas Modelo Salvas por Você")
-        if st.session_state.uploaded_fichas_data:
-            for ficha_key, ficha_info in st.session_state.uploaded_fichas_data.items():
-                if st.button(f"Abrir {ficha_info['name'].title()} (PDF Salvo)", key=f"btn_open_uploaded_{ficha_key}"):
-                    file_path = ficha_info['path']
-                    if not os.path.exists(file_path):
-                        st.error(f"Erro: Arquivo '{ficha_info['name']}' não encontrado em '{file_path}'. Ele pode ter sido movido ou deletado externamente.")
-                        # Remover do índice se o arquivo não existir mais
-                        del st.session_state.uploaded_fichas_data[ficha_key]
-                        save_uploaded_templates_index(st.session_state.uploaded_fichas_data)
-                        st.rerun()
-                        continue # Pula para o próximo item
-                        
-                    # Carregamento de texto (não usado para o campo editável)
-                    if file_path not in st.session_state.fichas_pdf_content_cache:
-                        st.session_state.fichas_pdf_content_cache[file_path] = read_pdf_text(file_path)
-                    
-                    # Carregamento das imagens do PDF
-                    if file_path not in st.session_state.fichas_pdf_images_cache:
-                        st.session_state.fichas_pdf_images_cache[file_path] = get_pdf_images(file_path)
-                    st.session_state.current_pdf_images = st.session_state.fichas_pdf_images_cache[file_path]
+        # --- SELEÇÃO DE FICHAS MODELO (Padrão e Uploadadas) ---
+        st.subheader("Abrir Ficha Modelo (PDF)")
+        
+        # Combinar as listas de fichas padrão e uploadadas para o selectbox
+        # Use um dicionário temporário para evitar nomes duplicados, priorizando uploaded se houver conflito
+        all_template_fichas = {}
+        # Adiciona fichas padrão
+        for name, path in st.session_state.fichas_padrao_paths.items():
+            if os.path.exists(path):
+                all_template_fichas[name.lower()] = {"name": name, "path": path}
+            else:
+                st.warning(f"Ficha Padrão '{name.title()}' não encontrada em '{path}'.")
 
-                    st.session_state.paciente_atual = None
-                    st.session_state.tipo_ficha_aberta = ficha_info['name']
-                    st.session_state.transcricao_geral = "" # Zera para as respostas
-                    for key in FORM_FIELDS_MAP.values():
-                        st.session_state[key] = ""
-                    st.session_state.active_form_field = None
-                    st.success(f"Ficha modelo '{ficha_info['name'].title()}' aberta. Veja o PDF como guia e insira as respostas abaixo.")
-                    st.rerun()
+        # Adiciona fichas uploadadas, sobrescrevendo se houver conflito de nome
+        for key, info in st.session_state.uploaded_fichas_data.items():
+            if os.path.exists(info['path']):
+                all_template_fichas[key] = info # Key já está em lower()
+            else:
+                st.warning(f"Ficha Modelo '{info['name']}' não encontrada em '{info['path']}'. Será removida da lista.")
+                # Opcional: remover do índice se o arquivo não existe
+                del st.session_state.uploaded_fichas_data[key]
+                save_uploaded_templates_index(st.session_state.uploaded_fichas_data)
+                st.rerun() # Recarrega para refletir a remoção
+        
+        template_ficha_options = [""] + sorted([info["name"].title() for info in all_template_fichas.values()])
+        selected_template_ficha_name = st.selectbox(
+            "Selecione uma ficha modelo para abrir:",
+            template_ficha_options,
+            key="select_template_ficha"
+        )
+
+        if selected_template_ficha_name and st.button(f"Abrir Ficha Modelo '{selected_template_ficha_name}'", key="btn_open_selected_template"):
+            # Encontrar o path correto da ficha selecionada
+            selected_ficha_path = None
+            for key, info in all_template_fichas.items():
+                if info["name"].lower() == selected_template_ficha_name.lower():
+                    selected_ficha_path = info["path"]
+                    break
             
-            # Opção para deletar fichas salvas
-            if st.checkbox("Mostrar Opção para Deletar Fichas Modelos"):
-                ficha_keys_to_delete = list(st.session_state.uploaded_fichas_data.keys())
-                if ficha_keys_to_delete:
-                    ficha_to_delete_key = st.selectbox("Selecione uma ficha para deletar:", 
-                                                   [""] + [st.session_state.uploaded_fichas_data[k]['name'] for k in ficha_keys_to_delete],
-                                                   key="delete_uploaded_ficha_select_name") # Use o nome amigável para seleção
-                    
-                    if ficha_to_delete_key:
-                        # Encontra a chave original do dicionário a partir do nome amigável
-                        original_key_to_delete = next((k for k, v in st.session_state.uploaded_fichas_data.items() if v['name'] == ficha_to_delete_key), None)
+            if selected_ficha_path:
+                if selected_ficha_path not in st.session_state.fichas_pdf_images_cache:
+                    st.session_state.fichas_pdf_images_cache[selected_ficha_path] = get_pdf_images(selected_ficha_path)
+                st.session_state.current_pdf_images = st.session_state.fichas_pdf_images_cache[selected_ficha_path]
 
-                        if original_key_to_delete and st.button(f"Deletar '{ficha_to_delete_key}'", key="btn_delete_uploaded_ficha"):
-                            file_path_to_delete = st.session_state.uploaded_fichas_data[original_key_to_delete]['path']
-                            
-                            if os.path.exists(file_path_to_delete):
-                                os.remove(file_path_to_delete)
-                                st.info(f"Arquivo '{os.path.basename(file_path_to_delete)}' deletado do disco.")
-                            else:
-                                st.warning(f"Arquivo '{os.path.basename(file_path_to_delete)}' não encontrado no disco (já pode ter sido deletado).")
-                            
-                            del st.session_state.uploaded_fichas_data[original_key_to_delete]
-                            save_uploaded_templates_index(st.session_state.uploaded_fichas_data)
-                            
-                            # Limpa caches se a ficha deletada estava neles
-                            if file_path_to_delete in st.session_state.fichas_pdf_content_cache:
-                                del st.session_state.fichas_pdf_content_cache[file_path_to_delete]
-                            if file_path_to_delete in st.session_state.fichas_pdf_images_cache:
-                                del st.session_state.fichas_pdf_images_cache[file_path_to_delete]
-                            
-                            st.success(f"Ficha modelo '{ficha_to_delete_key}' deletada do aplicativo.")
-                            st.rerun()
-                else:
-                    st.info("Nenhuma ficha modelo para deletar.")
+                st.session_state.paciente_atual = None
+                st.session_state.tipo_ficha_aberta = selected_template_ficha_name.lower()
+                st.session_state.transcricao_geral = ""
+                for key in FORM_FIELDS_MAP.values():
+                    st.session_state[key] = ""
+                st.session_state.active_form_field = None
+                st.success(f"Ficha modelo '{selected_template_ficha_name}' aberta. Veja o PDF como guia e insira as respostas abaixo.")
+                st.rerun()
+            else:
+                st.error("Erro ao encontrar o caminho da ficha selecionada.")
+
+        # --- Opção para deletar fichas salvas (mantido como checkbox para ocultar/exibir) ---
+        if st.checkbox("Gerenciar Fichas Modelos Salvas (Deletar)"):
+            if st.session_state.uploaded_fichas_data:
+                ficha_keys_to_delete = list(st.session_state.uploaded_fichas_data.keys())
+                ficha_to_delete_name_display = st.selectbox(
+                    "Selecione uma ficha para deletar:", 
+                    [""] + [st.session_state.uploaded_fichas_data[k]['name'] for k in ficha_keys_to_delete],
+                    key="delete_uploaded_ficha_select_name"
+                )
+                
+                if ficha_to_delete_name_display:
+                    original_key_to_delete = next((k for k, v in st.session_state.uploaded_fichas_data.items() if v['name'] == ficha_to_delete_name_display), None)
+                    if original_key_to_delete and st.button(f"Deletar '{ficha_to_delete_name_display}'", key="btn_delete_uploaded_ficha"):
+                        file_path_to_delete = st.session_state.uploaded_fichas_data[original_key_to_delete]['path']
+                        
+                        if os.path.exists(file_path_to_delete):
+                            os.remove(file_path_to_delete)
+                            st.info(f"Arquivo '{os.path.basename(file_path_to_delete)}' deletado do disco.")
+                        else:
+                            st.warning(f"Arquivo '{os.path.basename(file_path_to_delete)}' não encontrado no disco (já pode ter sido deletado).")
+                        
+                        del st.session_state.uploaded_fichas_data[original_key_to_delete]
+                        save_uploaded_templates_index(st.session_state.uploaded_fichas_data)
+                        
+                        if file_path_to_delete in st.session_state.fichas_pdf_content_cache:
+                            del st.session_state.fichas_pdf_content_cache[file_path_to_delete]
+                        if file_path_to_delete in st.session_state.fichas_pdf_images_cache:
+                            del st.session_state.fichas_pdf_images_cache[file_path_to_delete]
+                        
+                        st.success(f"Ficha modelo '{ficha_to_delete_name_display}' deletada do aplicativo.")
+                        st.rerun()
+            else:
+                st.info("Nenhuma ficha modelo para deletar.")
 
 
         st.markdown("---")
-        st.subheader("Nova Ficha em Branco") # Renomeado para diferenciar
+        st.subheader("Nova Ficha em Branco")
         nova_ficha_tipo = st.text_input("Nome da Nova Ficha (Ex: Avaliação Postural)", key="new_blank_ficha_name")
         if st.button("Criar Nova Ficha em Branco", key="btn_new_blank_ficha"):
             if nova_ficha_tipo:
                 st.session_state.paciente_atual = None
                 st.session_state.tipo_ficha_aberta = f"Nova: {nova_ficha_tipo.strip()}"
                 st.session_state.transcricao_geral = ""
-                st.session_state.current_pdf_images = [] # Limpa imagens de PDF para nova ficha em branco
+                st.session_state.current_pdf_images = []
                 for key in FORM_FIELDS_MAP.values():
                     st.session_state[key] = ""
                 st.session_state.active_form_field = FORM_FIELDS_ORDER[0] if FORM_FIELDS_ORDER else None
@@ -553,7 +552,7 @@ else:
                     st.session_state.paciente_atual = paciente_selecionado_ui
                     st.session_state.tipo_ficha_aberta = ficha_paciente_selecionada
                     st.session_state.transcricao_geral = st.session_state.pacientes[paciente_selecionado_ui][ficha_paciente_selecionada]
-                    st.session_state.current_pdf_images = [] # Limpa imagens de PDF ao abrir ficha de paciente
+                    st.session_state.current_pdf_images = []
                     for key in FORM_FIELDS_MAP.values():
                         st.session_state[key] = ""
                     st.session_state.active_form_field = None
@@ -632,24 +631,19 @@ else:
 
         # NOVO: Botão para salvar a ficha preenchida
         if st.button("Salvar Ficha Preenchida", key="btn_save_filled_ficha"):
-            # Verifica se há conteúdo nos campos ou na transcrição geral
             if st.session_state.tipo_ficha_aberta and (st.session_state.transcricao_geral.strip() or any(st.session_state[k].strip() for k in FORM_FIELDS_MAP.values())):
                 
-                # Gera um ID único para o registro
-                # Prioriza o paciente atual, senão usa "NovaFicha", e o tipo de ficha aberta
                 base_name = st.session_state.paciente_atual.replace(' ', '_') if st.session_state.paciente_atual else 'NovaFicha'
-                ficha_type_name = st.session_state.tipo_ficha_aberta.replace(' ', '_').replace(':', '') # Remove dois pontos de "Nova: Tipo"
+                ficha_type_name = st.session_state.tipo_ficha_aberta.replace(' ', '_').replace(':', '')
                 record_id = f"{base_name}_{ficha_type_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
                 record_path = os.path.join(SAVED_RECORDS_DIR, record_id)
                 
-                # Coleta todos os dados da ficha
                 ficha_data = {
                     "tipo_ficha": st.session_state.tipo_ficha_aberta,
                     "paciente": st.session_state.paciente_atual,
                     "data_preenchimento": datetime.now().isoformat(),
                     "observacoes_gerais": st.session_state.transcricao_geral,
                     "campos_especificos": {friendly_name: st.session_state[field_key] for friendly_name, field_key in FORM_FIELDS_MAP.items()},
-                    # Adiciona o path para o PDF original usado se desejar
                     "modelo_pdf_usado_path": st.session_state.fichas_padrao_paths.get(st.session_state.tipo_ficha_aberta) 
                                             or (st.session_state.uploaded_fichas_data.get(st.session_state.tipo_ficha_aberta.lower()) and st.session_state.uploaded_fichas_data[st.session_state.tipo_ficha_aberta.lower()]["path"])
                 }
@@ -658,13 +652,6 @@ else:
                     with open(record_path, "w", encoding="utf-8") as f:
                         json.dump(ficha_data, f, indent=4, ensure_ascii=False)
                     st.success(f"Ficha preenchida salva como: {record_id}")
-                    # Opcional: limpar os campos após salvar
-                    # st.session_state.transcricao_geral = ""
-                    # for key in FORM_FIELDS_MAP.values(): st.session_state[key] = ""
-                    # st.session_state.current_pdf_images = []
-                    # st.session_state.tipo_ficha_aberta = None
-                    # st.session_state.paciente_atual = None
-                    # st.rerun() # Descomente se quiser limpar a tela após salvar
                 except Exception as e:
                     st.error(f"Erro ao salvar a ficha preenchida: {e}")
             else:
@@ -676,11 +663,9 @@ else:
         
         saved_records = [f for f in os.listdir(SAVED_RECORDS_DIR) if f.endswith('.json')]
         if saved_records:
-            # Cria uma lista de nomes de arquivos para exibição mais amigável, talvez com a data do arquivo
             display_names = []
             for record_file in saved_records:
                 try:
-                    # Tenta ler um pouco do JSON para pegar o nome da ficha/paciente
                     record_path = os.path.join(SAVED_RECORDS_DIR, record_file)
                     with open(record_path, 'r', encoding='utf-8') as f:
                         temp_data = json.load(f)
@@ -695,7 +680,6 @@ else:
                                                  [""] + display_names, 
                                                  key="select_saved_record")
             
-            # Extrai o nome do arquivo JSON real da string de exibição
             selected_record_file = None
             if selected_display_name:
                 match = re.search(r'\[(.*?)\]$', selected_display_name)
@@ -708,22 +692,20 @@ else:
                     with open(record_path, 'r', encoding='utf-8') as f:
                         loaded_data = json.load(f)
                     
-                    # Carrega os dados da ficha salva para os session_states
                     st.session_state.transcricao_geral = loaded_data.get("observacoes_gerais", "")
-                    for friendly_name, field_key in FORM_FIELDS_MAP.items(): # Itera sobre o mapa para preencher corretamente
+                    for friendly_name, field_key in FORM_FIELDS_MAP.items():
                         st.session_state[field_key] = loaded_data.get("campos_especificos", {}).get(friendly_name, "")
                     
                     st.session_state.tipo_ficha_aberta = loaded_data.get("tipo_ficha", "Ficha Salva")
                     st.session_state.paciente_atual = loaded_data.get("paciente")
                     
-                    # Tenta carregar o PDF de modelo usado, se houver
                     model_path = loaded_data.get("modelo_pdf_usado_path")
                     if model_path and os.path.exists(model_path):
                          if model_path not in st.session_state.fichas_pdf_images_cache:
                             st.session_state.fichas_pdf_images_cache[model_path] = get_pdf_images(model_path)
                          st.session_state.current_pdf_images = st.session_state.fichas_pdf_images_cache[model_path]
                     else:
-                        st.session_state.current_pdf_images = [] # Garante que imagens antigas são limpas
+                        st.session_state.current_pdf_images = []
 
                     st.success(f"Ficha '{selected_record_file}' carregada com sucesso!")
                     st.rerun()
