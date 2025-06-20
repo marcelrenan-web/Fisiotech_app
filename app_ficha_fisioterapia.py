@@ -259,7 +259,7 @@ else:
                     else:
                         st.warning(f"Comando de ficha '{ficha_solicitada}' não reconhecido.")
 
-                # O restante da lógica de comandos de voz (abrir paciente, nova ficha, preencher, proximo, anterior) permanece a mesma
+                # Lógica para abrir paciente
                 match_abrir_paciente_ficha = re.search(r"abrir ficha do paciente (.+?) (?:de|da)? (.+)", texto_transcrito_lower)
                 if match_abrir_paciente_ficha and not comando_processado:
                     nome_paciente_falado = match_abrir_paciente_ficha.group(1).strip()
@@ -267,4 +267,485 @@ else:
                     
                     found_patient = None
                     for p_name_db in st.session_state.pacientes:
+                        # CORRIGIDO: Adicionado ':' e garantido 'p_name_db'
                         if nome_paciente_falado in p_name_db:
+                            found_patient = p_name_db
+                            break
+
+                    if found_patient:
+                        if tipo_ficha_falado in st.session_state.pacientes[found_patient]:
+                            st.session_state.paciente_atual = found_patient
+                            st.session_state.tipo_ficha_aberta = tipo_ficha_falado
+                            st.session_state.transcricao_geral = st.session_state.pacientes[found_patient][tipo_ficha_falado]
+                            
+                            st.session_state.current_pdf_images = [] # Limpa imagens de PDF ao abrir ficha de paciente
+                            
+                            for key in FORM_FIELDS_MAP.values():
+                                st.session_state[key] = ""
+                            
+                            st.session_state.active_form_field = None
+                            st.success(f"Ficha '{tipo_ficha_falado.title()}' do paciente '{found_patient.title()}' aberta e texto carregado!")
+                            st.rerun()
+                            comando_processado = True
+                        else:
+                            st.warning(f"Não foi possível encontrar a ficha '{tipo_ficha_falado.title()}' para o paciente '{found_patient.title()}'.")
+                            comando_processado = True
+                    else:
+                        st.warning(f"Paciente '{nome_paciente_falado.title()}' não encontrado.")
+                        comando_processado = True
+
+                match_nova_ficha = re.search(r"nova ficha de (.+)", texto_transcrito_lower)
+                if match_nova_ficha and not comando_processado:
+                    tipo_nova_ficha = match_nova_ficha.group(1).strip()
+                    st.session_state.paciente_atual = None
+                    st.session_state.tipo_ficha_aberta = f"Nova: {tipo_nova_ficha}"
+                    st.session_state.transcricao_geral = ""
+                    
+                    st.session_state.current_pdf_images = [] # Limpa imagens de PDF para nova ficha
+                    
+                    for key in FORM_FIELDS_MAP.values():
+                        st.session_state[key] = ""
+                    
+                    st.session_state.active_form_field = FORM_FIELDS_ORDER[0] if FORM_FIELDS_ORDER else None
+                    if st.session_state.active_form_field:
+                        st.info(f"Preparando para nova ficha: '{tipo_nova_ficha.title()}'. Comece a ditar no campo **{st.session_state.active_form_field.replace('_', ' ').title()}**.")
+                    else:
+                        st.info(f"Preparando para nova ficha: '{tipo_nova_ficha.title()}'. Não há campos definidos. Dite em observações gerais.")
+                    st.rerun()
+                    comando_processado = True
+
+                match_preencher_campo = re.search(r"preencher (.+)", texto_transcrito_lower)
+                if match_preencher_campo and not comando_processado:
+                    campo_falado = match_preencher_campo.group(1).strip()
+                    found_field_key = None
+                    for friendly_name, field_key in FORM_FIELDS_MAP.items():
+                        if campo_falado in friendly_name:
+                            found_field_key = field_key
+                            break
+                    
+                    if found_field_key:
+                        st.session_state.active_form_field = found_field_key
+                        comando_processado = True
+                        st.session_state.last_transcription_segment = ""
+                        st.rerun()
+                    else:
+                        st.warning(f"Campo '{campo_falado.title()}' não reconhecido.")
+                        comando_processado = True
+
+                if "proximo campo" in texto_transcrito_lower and not comando_processado:
+                    if st.session_state.active_form_field:
+                        current_index = FORM_FIELDS_ORDER.index(st.session_state.active_form_field)
+                        if current_index < len(FORM_FIELDS_ORDER) - 1:
+                            st.session_state.active_form_field = FORM_FIELDS_ORDER[current_index + 1]
+                            st.info(f"Campo ativo alterado para: **{st.session_state.active_form_field.replace('_', ' ').title()}**")
+                        else:
+                            st.info("Você está no último campo do formulário.")
+                            st.session_state.active_form_field = None
+                    else:
+                        if FORM_FIELDS_ORDER:
+                            st.session_state.active_form_field = FORM_FIELDS_ORDER[0]
+                            st.info(f"Ativando primeiro campo: **{st.session_state.active_form_field.replace('_', ' ').title()}**")
+                        else:
+                            st.warning("Não há campos definidos no formulário.")
+                    comando_processado = True
+                    st.session_state.last_transcription_segment = ""
+                    st.rerun()
+
+                if "campo anterior" in texto_transcrito_lower and not comando_processado:
+                    if st.session_state.active_form_field:
+                        current_index = FORM_FIELDS_ORDER.index(st.session_state.active_form_field)
+                        if current_index > 0:
+                            st.session_state.active_form_field = FORM_FIELDS_ORDER[current_index - 1]
+                            st.info(f"Campo ativo alterado para: **{st.session_state.active_form_field.replace('_', ' ').title()}**")
+                        else:
+                            st.info("Você já está no primeiro campo do formulário.")
+                    else:
+                        if FORM_FIELDS_ORDER:
+                            st.session_state.active_form_field = FORM_FIELDS_ORDER[-1]
+                            st.info(f"Ativando último campo: **{st.session_state.active_form_field.replace('_', ' ').title()}**")
+                        else:
+                            st.warning("Não há campos definidos no formulário.")
+                    comando_processado = True
+                    st.session_state.last_transcription_segment = ""
+                    st.rerun()
+
+                if ("parar preenchimento" in texto_transcrito_lower or
+                    "sair do campo" in texto_transcrito_lower) and not comando_processado:
+                    if st.session_state.active_form_field:
+                        st.info(f"Saindo do campo **{st.session_state.active_form_field.replace('_', ' ').title()}**.")
+                        st.session_state.active_form_field = None
+                        st.session_state.last_transcription_segment = ""
+                        st.rerun()
+                        comando_processado = True
+                    else:
+                        st.warning("Nenhum campo específico está ativo para sair.")
+                        comando_processado = True
+
+                if not comando_processado and st.session_state.listening_active:
+                    if st.session_state.active_form_field:
+                        st.session_state[st.session_state.active_form_field] += " " + texto_transcrito_segmento
+                    else:
+                        st.session_state.transcricao_geral += " " + texto_transcrito_segmento
+
+                self.buffer = b""
+
+            return frame
+
+    # --- UI Principal do Aplicativo (visível após o login) ---
+
+    st.title("🗣️ Ficha de Atendimento de Fisioterapia")
+    st.markdown("---")
+
+    col1, col2 = st.columns([1, 2])
+
+    with col1:
+        st.header("Opções de Ficha")
+
+        st.subheader("Fichas Padrão do Sistema")
+        # Itera sobre os caminhos de PDF padrão
+        for ficha_name, file_path in st.session_state.fichas_padrao_paths.items():
+            # Verifica se o arquivo PDF existe antes de criar o botão para ele
+            if os.path.exists(file_path):
+                if st.button(f"Abrir {ficha_name.title()} (PDF Padrão)", key=f"btn_open_pdf_padrao_{ficha_name}"):
+                    if file_path not in st.session_state.fichas_pdf_images_cache:
+                        st.session_state.fichas_pdf_images_cache[file_path] = get_pdf_images(file_path)
+                    st.session_state.current_pdf_images = st.session_state.fichas_pdf_images_cache[file_path]
+
+                    st.session_state.paciente_atual = None
+                    st.session_state.tipo_ficha_aberta = ficha_name
+                    st.session_state.transcricao_geral = "" # Zera para as respostas
+                    for key in FORM_FIELDS_MAP.values():
+                        st.session_state[key] = ""
+                    st.session_state.active_form_field = None
+                    st.success(f"Ficha padrão '{ficha_name.title()}' aberta. Veja o PDF como guia e insira as respostas abaixo.")
+                    st.rerun()
+            else:
+                st.warning(f"Ficha Padrão '{ficha_name.title()}' não encontrada em '{file_path}'.")
+
+        st.subheader("Upload de Nova Ficha Modelo (PDF)")
+        uploaded_file = st.file_uploader("Escolha um arquivo PDF para upload", type="pdf")
+        new_ficha_name = st.text_input("Nome para esta nova ficha modelo (Ex: 'Ficha de Coluna')", key="new_uploaded_ficha_name")
+        
+        # Botão para salvar o arquivo uploaded
+        if uploaded_file is not None and new_ficha_name:
+            if st.button("Salvar Ficha Modelo Uploaded", key="btn_save_uploaded_template"):
+                # Garante um nome de arquivo único
+                sanitized_name = re.sub(r'[^a-zA-Z0-9_.-]', '', new_ficha_name.lower().replace(" ", "_"))
+                file_ext = os.path.splitext(uploaded_file.name)[1]
+                save_path = os.path.join(UPLOADED_TEMPLATES_DIR, f"{sanitized_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}{file_ext}")
+
+                try:
+                    with open(save_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+                    
+                    st.session_state.uploaded_fichas_data[new_ficha_name.lower()] = {
+                        "name": new_ficha_name,
+                        "path": save_path
+                    }
+                    save_uploaded_templates_index(st.session_state.uploaded_fichas_data)
+                    st.success(f"Ficha modelo '{new_ficha_name}' salva e pronta para uso!")
+                    st.rerun() # Recarrega para mostrar a nova ficha na lista
+                except Exception as e:
+                    st.error(f"Erro ao salvar o arquivo: {e}")
+        elif uploaded_file is None and new_ficha_name:
+            st.warning("Por favor, selecione um arquivo PDF antes de salvar a ficha modelo.")
+
+
+        st.subheader("Fichas Modelo Salvas por Você")
+        if st.session_state.uploaded_fichas_data:
+            for ficha_key, ficha_info in st.session_state.uploaded_fichas_data.items():
+                if st.button(f"Abrir {ficha_info['name'].title()} (PDF Salvo)", key=f"btn_open_uploaded_{ficha_key}"):
+                    file_path = ficha_info['path']
+                    if not os.path.exists(file_path):
+                        st.error(f"Erro: Arquivo '{ficha_info['name']}' não encontrado em '{file_path}'. Ele pode ter sido movido ou deletado externamente.")
+                        # Remover do índice se o arquivo não existir mais
+                        del st.session_state.uploaded_fichas_data[ficha_key]
+                        save_uploaded_templates_index(st.session_state.uploaded_fichas_data)
+                        st.rerun()
+                        continue # Pula para o próximo item
+                        
+                    # Carregamento de texto (não usado para o campo editável)
+                    if file_path not in st.session_state.fichas_pdf_content_cache:
+                        st.session_state.fichas_pdf_content_cache[file_path] = read_pdf_text(file_path)
+                    
+                    # Carregamento das imagens do PDF
+                    if file_path not in st.session_state.fichas_pdf_images_cache:
+                        st.session_state.fichas_pdf_images_cache[file_path] = get_pdf_images(file_path)
+                    st.session_state.current_pdf_images = st.session_state.fichas_pdf_images_cache[file_path]
+
+                    st.session_state.paciente_atual = None
+                    st.session_state.tipo_ficha_aberta = ficha_info['name']
+                    st.session_state.transcricao_geral = "" # Zera para as respostas
+                    for key in FORM_FIELDS_MAP.values():
+                        st.session_state[key] = ""
+                    st.session_state.active_form_field = None
+                    st.success(f"Ficha modelo '{ficha_info['name'].title()}' aberta. Veja o PDF como guia e insira as respostas abaixo.")
+                    st.rerun()
+            
+            # Opção para deletar fichas salvas
+            if st.checkbox("Mostrar Opção para Deletar Fichas Modelos"):
+                ficha_keys_to_delete = list(st.session_state.uploaded_fichas_data.keys())
+                if ficha_keys_to_delete:
+                    ficha_to_delete_key = st.selectbox("Selecione uma ficha para deletar:", 
+                                                   [""] + [st.session_state.uploaded_fichas_data[k]['name'] for k in ficha_keys_to_delete],
+                                                   key="delete_uploaded_ficha_select_name") # Use o nome amigável para seleção
+                    
+                    if ficha_to_delete_key:
+                        # Encontra a chave original do dicionário a partir do nome amigável
+                        original_key_to_delete = next((k for k, v in st.session_state.uploaded_fichas_data.items() if v['name'] == ficha_to_delete_key), None)
+
+                        if original_key_to_delete and st.button(f"Deletar '{ficha_to_delete_key}'", key="btn_delete_uploaded_ficha"):
+                            file_path_to_delete = st.session_state.uploaded_fichas_data[original_key_to_delete]['path']
+                            
+                            if os.path.exists(file_path_to_delete):
+                                os.remove(file_path_to_delete)
+                                st.info(f"Arquivo '{os.path.basename(file_path_to_delete)}' deletado do disco.")
+                            else:
+                                st.warning(f"Arquivo '{os.path.basename(file_path_to_delete)}' não encontrado no disco (já pode ter sido deletado).")
+                            
+                            del st.session_state.uploaded_fichas_data[original_key_to_delete]
+                            save_uploaded_templates_index(st.session_state.uploaded_fichas_data)
+                            
+                            # Limpa caches se a ficha deletada estava neles
+                            if file_path_to_delete in st.session_state.fichas_pdf_content_cache:
+                                del st.session_state.fichas_pdf_content_cache[file_path_to_delete]
+                            if file_path_to_delete in st.session_state.fichas_pdf_images_cache:
+                                del st.session_state.fichas_pdf_images_cache[file_path_to_delete]
+                            
+                            st.success(f"Ficha modelo '{ficha_to_delete_key}' deletada do aplicativo.")
+                            st.rerun()
+                else:
+                    st.info("Nenhuma ficha modelo para deletar.")
+
+
+        st.markdown("---")
+        st.subheader("Nova Ficha em Branco") # Renomeado para diferenciar
+        nova_ficha_tipo = st.text_input("Nome da Nova Ficha (Ex: Avaliação Postural)", key="new_blank_ficha_name")
+        if st.button("Criar Nova Ficha em Branco", key="btn_new_blank_ficha"):
+            if nova_ficha_tipo:
+                st.session_state.paciente_atual = None
+                st.session_state.tipo_ficha_aberta = f"Nova: {nova_ficha_tipo.strip()}"
+                st.session_state.transcricao_geral = ""
+                st.session_state.current_pdf_images = [] # Limpa imagens de PDF para nova ficha em branco
+                for key in FORM_FIELDS_MAP.values():
+                    st.session_state[key] = ""
+                st.session_state.active_form_field = FORM_FIELDS_ORDER[0] if FORM_FIELDS_ORDER else None
+                st.success(f"Nova ficha '{nova_ficha_tipo.title()}' criada!")
+                st.rerun()
+            else:
+                st.warning("Por favor, digite o nome da nova ficha.")
+
+        st.subheader("Fichas de Pacientes Existentes (Simulado)")
+        paciente_selecionado_ui = st.selectbox(
+            "Selecione um Paciente",
+            [""] + list(st.session_state.pacientes.keys()),
+            key="select_paciente"
+        )
+        if paciente_selecionado_ui:
+            fichas_do_paciente = st.session_state.pacientes[paciente_selecionado_ui]
+            ficha_paciente_selecionada = st.selectbox(
+                f"Selecione a Ficha para {paciente_selecionado_ui.title()}",
+                [""] + list(fichas_do_paciente.keys()),
+                key="select_ficha_paciente"
+            )
+            if st.button(f"Abrir Ficha de {paciente_selecionado_ui.title()}", key="btn_open_paciente_ficha"):
+                if ficha_paciente_selecionada:
+                    st.session_state.paciente_atual = paciente_selecionado_ui
+                    st.session_state.tipo_ficha_aberta = ficha_paciente_selecionada
+                    st.session_state.transcricao_geral = st.session_state.pacientes[paciente_selecionado_ui][ficha_paciente_selecionada]
+                    st.session_state.current_pdf_images = [] # Limpa imagens de PDF ao abrir ficha de paciente
+                    for key in FORM_FIELDS_MAP.values():
+                        st.session_state[key] = ""
+                    st.session_state.active_form_field = None
+                    st.success(f"Ficha '{ficha_paciente_selecionada.title()}' do paciente '{paciente_selecionado_ui.title()}' aberta e texto carregado!")
+                    st.rerun()
+                else:
+                    st.warning("Por favor, selecione uma ficha para o paciente.")
+
+        st.markdown("---")
+        st.header("Controle de Microfone")
+
+        if st.session_state.listening_active:
+            if st.button("Pausar Anotação de Voz ⏸️", key="btn_pause_listening"):
+                st.session_state.listening_active = False
+                st.info("Anotação de voz pausada. Diga 'retomar anotação' para continuar.")
+                st.rerun()
+        else:
+            if st.button("Retomar Anotação de Voz ▶️", key="btn_resume_listening"):
+                st.session_state.listening_active = True
+                st.info("Anotação de voz retomada.")
+                st.rerun()
+        
+        st.markdown(st.session_state.mic_status_message)
+        if not st.session_state.listening_active:
+            st.warning("Microfone em pausa. Comandos de voz para campos e fichas ainda funcionam.")
+        
+        st.markdown("---")
+
+    with col2:
+        st.header("Conteúdo da Ficha")
+
+        if st.session_state.tipo_ficha_aberta:
+            ficha_titulo = st.session_state.tipo_ficha_aberta.title()
+            if st.session_state.paciente_atual:
+                st.subheader(f"Ficha: {ficha_titulo} (Paciente: {st.session_state.paciente_atual.title()})")
+            else:
+                st.subheader(f"Ficha: {ficha_titulo}")
+        else:
+            st.subheader("Nenhuma ficha aberta")
+
+        if st.session_state.last_transcription_segment:
+            st.markdown(f"<p style='color: grey; font-size: 0.9em;'><i>Última transcrição: \"{st.session_state.last_transcription_segment}\"</i></p>", unsafe_allow_html=True)
+
+        if st.session_state.active_form_field:
+            friendly_name_active = next((k for k, v in FORM_FIELDS_MAP.items() if v == st.session_state.active_form_field), st.session_state.active_form_field)
+            st.info(f"Ditando em: **{friendly_name_active.replace('_', ' ').title()}**")
+
+        # Exibe as imagens do PDF se houver alguma ficha PDF aberta
+        if st.session_state.current_pdf_images:
+            st.subheader("Visualização da Ficha (Guia)")
+            for i, img in enumerate(st.session_state.current_pdf_images):
+                st.image(img, caption=f"Página {i+1} do PDF", use_column_width=True)
+            st.markdown("---") # Separador visual
+
+        # Os campos específicos do formulário e o campo geral abaixo das imagens do PDF
+        for friendly_name_display, field_key in FORM_FIELDS_MAP.items():
+            st.text_area(
+                f"{friendly_name_display.title()}:",
+                value=st.session_state[field_key],
+                key=field_key,
+                height=150,
+                help=f"Diga 'preencher {friendly_name_display}' para ativar este campo.",
+                disabled=(st.session_state.active_form_field != field_key)
+            )
+
+        st.markdown("---")
+        st.subheader("Observações Gerais da Ficha")
+        st.text_area(
+            "Texto da Ficha (Geral):",
+            value=st.session_state.transcricao_geral,
+            key="transcricao_geral_text_area",
+            height=300,
+            help="Texto ditado sem um campo específico ativo ou carregado de uma ficha existente.",
+            disabled=(st.session_state.active_form_field is not None)
+        )
+
+        # NOVO: Botão para salvar a ficha preenchida
+        if st.button("Salvar Ficha Preenchida", key="btn_save_filled_ficha"):
+            # Verifica se há conteúdo nos campos ou na transcrição geral
+            if st.session_state.tipo_ficha_aberta and (st.session_state.transcricao_geral.strip() or any(st.session_state[k].strip() for k in FORM_FIELDS_MAP.values())):
+                
+                # Gera um ID único para o registro
+                # Prioriza o paciente atual, senão usa "NovaFicha", e o tipo de ficha aberta
+                base_name = st.session_state.paciente_atual.replace(' ', '_') if st.session_state.paciente_atual else 'NovaFicha'
+                ficha_type_name = st.session_state.tipo_ficha_aberta.replace(' ', '_').replace(':', '') # Remove dois pontos de "Nova: Tipo"
+                record_id = f"{base_name}_{ficha_type_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                record_path = os.path.join(SAVED_RECORDS_DIR, record_id)
+                
+                # Coleta todos os dados da ficha
+                ficha_data = {
+                    "tipo_ficha": st.session_state.tipo_ficha_aberta,
+                    "paciente": st.session_state.paciente_atual,
+                    "data_preenchimento": datetime.now().isoformat(),
+                    "observacoes_gerais": st.session_state.transcricao_geral,
+                    "campos_especificos": {friendly_name: st.session_state[field_key] for friendly_name, field_key in FORM_FIELDS_MAP.items()},
+                    # Adiciona o path para o PDF original usado se desejar
+                    "modelo_pdf_usado_path": st.session_state.fichas_padrao_paths.get(st.session_state.tipo_ficha_aberta) 
+                                            or (st.session_state.uploaded_fichas_data.get(st.session_state.tipo_ficha_aberta.lower()) and st.session_state.uploaded_fichas_data[st.session_state.tipo_ficha_aberta.lower()]["path"])
+                }
+
+                try:
+                    with open(record_path, "w", encoding="utf-8") as f:
+                        json.dump(ficha_data, f, indent=4, ensure_ascii=False)
+                    st.success(f"Ficha preenchida salva como: {record_id}")
+                    # Opcional: limpar os campos após salvar
+                    # st.session_state.transcricao_geral = ""
+                    # for key in FORM_FIELDS_MAP.values(): st.session_state[key] = ""
+                    # st.session_state.current_pdf_images = []
+                    # st.session_state.tipo_ficha_aberta = None
+                    # st.session_state.paciente_atual = None
+                    # st.rerun() # Descomente se quiser limpar a tela após salvar
+                except Exception as e:
+                    st.error(f"Erro ao salvar a ficha preenchida: {e}")
+            else:
+                st.warning("Não há ficha aberta ou conteúdo para salvar. Por favor, preencha algo.")
+
+        st.markdown("---")
+        # Visualizador/Abridor de Fichas Preenchidas
+        st.subheader("Acessar Fichas Preenchidas Salvas")
+        
+        saved_records = [f for f in os.listdir(SAVED_RECORDS_DIR) if f.endswith('.json')]
+        if saved_records:
+            # Cria uma lista de nomes de arquivos para exibição mais amigável, talvez com a data do arquivo
+            display_names = []
+            for record_file in saved_records:
+                try:
+                    # Tenta ler um pouco do JSON para pegar o nome da ficha/paciente
+                    record_path = os.path.join(SAVED_RECORDS_DIR, record_file)
+                    with open(record_path, 'r', encoding='utf-8') as f:
+                        temp_data = json.load(f)
+                    display_name = temp_data.get("tipo_ficha", "Desconhecido")
+                    patient_name = temp_data.get("paciente", "Sem Paciente")
+                    data_preenchimento = datetime.fromisoformat(temp_data.get("data_preenchimento")).strftime("%d/%m/%Y %H:%M")
+                    display_names.append(f"{display_name} ({patient_name}) - {data_preenchimento} [{record_file}]")
+                except Exception:
+                    display_names.append(f"{record_file} (Erro ao ler)")
+            
+            selected_display_name = st.selectbox("Selecione uma ficha salva para carregar:", 
+                                                 [""] + display_names, 
+                                                 key="select_saved_record")
+            
+            # Extrai o nome do arquivo JSON real da string de exibição
+            selected_record_file = None
+            if selected_display_name:
+                match = re.search(r'\[(.*?)\]$', selected_display_name)
+                if match:
+                    selected_record_file = match.group(1)
+
+            if selected_record_file and st.button("Carregar Ficha Salva", key="btn_load_saved_record"):
+                record_path = os.path.join(SAVED_RECORDS_DIR, selected_record_file)
+                try:
+                    with open(record_path, 'r', encoding='utf-8') as f:
+                        loaded_data = json.load(f)
+                    
+                    # Carrega os dados da ficha salva para os session_states
+                    st.session_state.transcricao_geral = loaded_data.get("observacoes_gerais", "")
+                    for friendly_name, field_key in FORM_FIELDS_MAP.items(): # Itera sobre o mapa para preencher corretamente
+                        st.session_state[field_key] = loaded_data.get("campos_especificos", {}).get(friendly_name, "")
+                    
+                    st.session_state.tipo_ficha_aberta = loaded_data.get("tipo_ficha", "Ficha Salva")
+                    st.session_state.paciente_atual = loaded_data.get("paciente")
+                    
+                    # Tenta carregar o PDF de modelo usado, se houver
+                    model_path = loaded_data.get("modelo_pdf_usado_path")
+                    if model_path and os.path.exists(model_path):
+                         if model_path not in st.session_state.fichas_pdf_images_cache:
+                            st.session_state.fichas_pdf_images_cache[model_path] = get_pdf_images(model_path)
+                         st.session_state.current_pdf_images = st.session_state.fichas_pdf_images_cache[model_path]
+                    else:
+                        st.session_state.current_pdf_images = [] # Garante que imagens antigas são limpas
+
+                    st.success(f"Ficha '{selected_record_file}' carregada com sucesso!")
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"Erro ao carregar ficha salva: {e}")
+        else:
+            st.info("Nenhuma ficha preenchida salva ainda.")
+
+
+    webrtc_ctx = webrtc_streamer(
+        key="fisioterapia_voice_assistant",
+        mode=WebRtcMode.SENDONLY,
+        audio_processor_factory=AudioProcessor,
+        media_stream_constraints={"video": False, "audio": True},
+        rtc_configuration=RTCConfiguration(
+            {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+        ),
+        async_processing=True,
+    )
+
+    if webrtc_ctx.state.playing:
+        st.session_state.mic_status_message = "🟢 Microfone Conectado (Escutando)"
+    else:
+        st.session_state.mic_status_message = "🔴 Microfone Desconectado (Aguardando Conexão)"
