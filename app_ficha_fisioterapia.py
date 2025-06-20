@@ -114,7 +114,7 @@ for key in FORM_FIELDS_MAP.values():
     if key not in st.session_state:
         st.session_state[key] = ""
 
-# --- Funções Auxiliares (mantidas ou levemente ajustadas) ---
+# --- Funções Auxiliares ---
 
 @st.cache_data(show_spinner="Extraindo texto do PDF...")
 def read_pdf_text(file_path):
@@ -125,3 +125,146 @@ def read_pdf_text(file_path):
     try:
         with pdfplumber.open(file_path) as pdf:
             for page in pdf.pages:
+                text += page.extract_text(x_tolerance=2) + "\n"
+        return text
+    except Exception as e:
+        st.error(f"Erro ao ler PDF '{file_path}': {e}")
+        return ""
+
+@st.cache_data(show_spinner="Preparando visualização do PDF...")
+def get_pdf_images(file_path):
+    if not os.path.exists(file_path):
+        #st.error(f"Erro: Arquivo PDF não encontrado em '{file_path}'") # Comentar para evitar erro em ficheiro opcional
+        return []
+    images = []
+    try:
+        doc = fitz.open(file_path)
+        for page_num in range(doc.page_count):
+            page = doc.load_page(page_num)
+            pix = page.get_pixmap()
+            img_bytes = pix.pil_tobytes(format="PNG")
+            images.append(Image.open(io.BytesIO(img_bytes)))
+        doc.close()
+        return images
+    except Exception as e:
+        st.error(f"Erro ao converter PDF para imagem: {e}")
+        return []
+
+def login_page():
+    st.title("🔐 Login")
+    user = st.text_input("Usuário")
+    pwd = st.text_input("Senha", type="password")
+    if st.button("Entrar"):
+        if user == "fisioterapeuta" and pwd == "1234":
+            st.session_state.logado = True
+            st.rerun()
+        else:
+            st.error("Usuário ou senha incorretos")
+
+# --- Lógica Principal do Aplicativo ---
+if not st.session_state.logado:
+    login_page()
+else:
+    @st.cache_resource
+    def carregar_modelo():
+        st.info("Carregando modelo Whisper (pode levar alguns segundos)...")
+        try:
+            model = whisper.load_model("base.en")
+            st.success("Modelo Whisper 'base.en' carregado!")
+        except Exception as e:
+            st.warning(f"Não foi possível carregar 'base.en': {e}. Tentando 'base' (maior).")
+            model = whisper.load_model("base")
+            st.success("Modelo Whisper 'base' carregado!")
+        return model
+
+    model = carregar_modelo()
+
+    def corrigir_termos(texto):
+        correcoes = {
+            "tendinite": "tendinite",
+            "cervicalgia": "cervicalgia",
+            "lombar": "região lombar",
+            "reabilitação funcional": "reabilitação funcional",
+            "fisioterapia do ombro": "fisioterapia de ombro",
+            "dor nas costas": "algia na coluna",
+        }
+        for errado, certo in correcoes.items():
+            texto = texto.replace(errado, certo)
+        return texto
+
+    class AudioProcessor(AudioProcessorBase):
+        def __init__(self) -> None:
+            self.buffer = b""
+
+        def recv(self, frame: av.AudioFrame) -> av.AudioFrame:
+            pcm = frame.to_ndarray().flatten().astype(np.float32).tobytes()
+            self.buffer += pcm
+
+            if len(self.buffer) > 32000 * 5:
+                audio_np = np.frombuffer(self.buffer, np.float32)
+                audio_np = whisper.pad_or_trim(audio_np)
+                mel = whisper.log_mel_spectrogram(audio_np).to(model.device)
+                options = whisper.DecodingOptions(language="pt", fp16=False)
+                result = whisper.decode(model, mel, options)
+                
+                texto_transcrito_segmento = corrigir_termos(result.text).strip()
+                st.session_state.last_transcription_segment = texto_transcrito_segmento
+                
+                comando_processado = False
+                texto_transcrito_lower = texto_transcrito_segmento.lower()
+
+                if "pausar anotação" in texto_transcrito_lower:
+                    st.session_state.listening_active = False
+                    st.session_state.last_transcription_segment = ""
+                    comando_processado = True
+                elif "retomar anotação" in texto_transcrito_lower:
+                    st.session_state.listening_active = True
+                    st.session_state.last_transcription_segment = ""
+                    comando_processado = True
+
+                # Lógica para abrir PDF via comando de voz (PADRÃO E UPLOADED)
+                match_abrir_ficha_padrao_ou_upload = re.search(r"(?:abrir|mostrar) ficha de (.+)", texto_transcrito_lower)
+                if match_abrir_ficha_padrao_ou_upload and not comando_processado:
+                    ficha_solicitada = match_abrir_ficha_padrao_ou_upload.group(1).strip()
+                    file_path_to_open = None
+
+                    # Tenta encontrar em fichas padrão
+                    if ficha_solicitada in st.session_state.fichas_padrao_paths:
+                        file_path_to_open = st.session_state.fichas_padrao_paths[ficha_solicitada]
+                    # Tenta encontrar em fichas uploadadas
+                    elif ficha_solicitada in st.session_state.uploaded_fichas_data:
+                        file_path_to_open = st.session_state.uploaded_fichas_data[ficha_solicitada]["path"]
+                    
+                    if file_path_to_open:
+                        # Carregamento de texto (não usado para o campo editável, mas pode ser útil para outras coisas)
+                        if file_path_to_open not in st.session_state.fichas_pdf_content_cache:
+                            st.session_state.fichas_pdf_content_cache[file_path_to_open] = read_pdf_text(file_path_to_open)
+                        
+                        # Carregamento das imagens do PDF
+                        if file_path_to_open not in st.session_state.fichas_pdf_images_cache:
+                            st.session_state.fichas_pdf_images_cache[file_path_to_open] = get_pdf_images(file_path_to_open)
+                        st.session_state.current_pdf_images = st.session_state.fichas_pdf_images_cache[file_path_to_open]
+
+                        st.session_state.paciente_atual = None
+                        st.session_state.tipo_ficha_aberta = ficha_solicitada
+                        st.session_state.transcricao_geral = "" # Zera para as respostas
+                        
+                        for key in FORM_FIELDS_MAP.values():
+                            st.session_state[key] = "" 
+                        
+                        st.session_state.active_form_field = None
+                        st.success(f"Ficha '{ficha_solicitada.title()}' aberta. Veja o PDF como guia e insira as respostas abaixo.")
+                        st.rerun()
+                        comando_processado = True
+                    else:
+                        st.warning(f"Comando de ficha '{ficha_solicitada}' não reconhecido.")
+
+                # O restante da lógica de comandos de voz (abrir paciente, nova ficha, preencher, proximo, anterior) permanece a mesma
+                match_abrir_paciente_ficha = re.search(r"abrir ficha do paciente (.+?) (?:de|da)? (.+)", texto_transcrito_lower)
+                if match_abrir_paciente_ficha and not comando_processado:
+                    nome_paciente_falado = match_abrir_paciente_ficha.group(1).strip()
+                    tipo_ficha_falado = match_abrir_paciente_ficha.group(2).strip()
+                    
+                    found_patient = None
+                    for p_name_db in st.session_state.pacientes:
+                        if nome_paciente_falado in p
