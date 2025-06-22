@@ -15,20 +15,9 @@ import json # Para salvar metadados de fichas uploadadas
 # --- Configurações iniciais da Página Streamlit ---
 st.set_page_config(page_title="Ficha Atendimento - Fisioterapia", layout="centered")
 
-# --- Definição dos Campos da Ficha e Ordem para Navegação ---
-FORM_FIELDS_MAP = {
-    "localizacao e caracteristicas do sintoma": "sintomas_localizacao",
-    "cirurgias traumatismos parto": "cirurgias_traumatismos_parto",
-    "sono": "sono",
-    "atividade fisica": "atividade_fisica",
-    "condicoes gerais": "condicoes_gerais",
-    "alimentacao": "alimentacao",
-    "alergias": "alergias",
-    "emocional": "emocional",
-    "medicacao": "medicacao",
-}
-
-FORM_FIELDS_ORDER = list(FORM_FIELDS_MAP.values())
+# --- REMOVIDOS OS CAMPOS FIXOS ---
+# Não há mais FORM_FIELDS_MAP e FORM_FIELDS_ORDER aqui.
+# A ideia é usar apenas a área de observações gerais para a transcrição.
 
 # --- Caminhos para Armazenamento ---
 UPLOADED_TEMPLATES_DIR = "dados/uploaded_fichas_templates"
@@ -46,7 +35,6 @@ def load_uploaded_templates_index():
             with open(UPLOADED_TEMPLATES_INDEX_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except json.JSONDecodeError:
-            # Se o JSON estiver corrompido ou vazio, retorna um dicionário vazio
             st.warning(f"Erro ao ler {UPLOADED_TEMPLATES_INDEX_FILE}. Criando um novo.")
             return {}
     return {}
@@ -59,17 +47,12 @@ def save_uploaded_templates_index(index_data):
 if "logado" not in st.session_state:
     st.session_state.logado = False
 
-# Fichas padrão (as que vêm com o app, ex: a de avaliação que você enviou)
-# REMOVIDOS os caminhos hardcoded que poluem a UI inicial.
-# Agora, fichas padrão serão as que o usuário fizer upload e salvar.
 if "fichas_padrao_paths" not in st.session_state:
-    st.session_state.fichas_padrao_paths = {} # Inicializa vazio
+    st.session_state.fichas_padrao_paths = {}
 
-# NOVO: Carrega as fichas uploadadas e salvas
 if "uploaded_fichas_data" not in st.session_state:
     st.session_state.uploaded_fichas_data = load_uploaded_templates_index()
 
-# Cache para o texto e imagens do PDF
 if "fichas_pdf_content_cache" not in st.session_state:
     st.session_state.fichas_pdf_content_cache = {}
 if "fichas_pdf_images_cache" not in st.session_state:
@@ -96,8 +79,9 @@ if "current_pdf_images" not in st.session_state:
 if "last_transcription_segment" not in st.session_state:
     st.session_state.last_transcription_segment = ""
 
-if "active_form_field" not in st.session_state:
-    st.session_state.active_form_field = None
+# st.session_state.active_form_field não é mais necessário, pois não há campos específicos
+# if "active_form_field" not in st.session_state:
+#     st.session_state.active_form_field = None
 
 if "listening_active" not in st.session_state:
     st.session_state.listening_active = True
@@ -108,9 +92,10 @@ if "mic_status_message" not in st.session_state:
 if "webrtc_initialized" not in st.session_state:
     st.session_state.webrtc_initialized = False
 
-for key in FORM_FIELDS_MAP.values():
-    if key not in st.session_state:
-        st.session_state[key] = ""
+# REMOVIDO o loop de inicialização de st.session_state[key] para campos fixos
+# for key in FORM_FIELDS_MAP.values():
+#     if key not in st.session_state:
+#         st.session_state[key] = ""
 
 # --- Funções Auxiliares ---
 
@@ -213,10 +198,12 @@ else:
                     st.session_state.listening_active = False
                     st.session_state.last_transcription_segment = ""
                     comando_processado = True
+                    st.rerun() # Adicionado rerun para refletir o status de escuta imediatamente
                 elif "retomar anotação" in texto_transcrito_lower:
                     st.session_state.listening_active = True
                     st.session_state.last_transcription_segment = ""
                     comando_processado = True
+                    st.rerun() # Adicionado rerun para refletir o status de escuta imediatamente
 
                 # Lógica para abrir PDF via comando de voz (PADRÃO E UPLOADED)
                 match_abrir_ficha_padrao_ou_upload = re.search(r"(?:abrir|mostrar) ficha de (.+)", texto_transcrito_lower)
@@ -224,17 +211,12 @@ else:
                     ficha_solicitada = match_abrir_ficha_padrao_ou_upload.group(1).strip()
                     file_path_to_open = None
 
-                    # Tenta encontrar em fichas padrão (agora vazias por padrão, só se algo for adicionado)
                     if ficha_solicitada in st.session_state.fichas_padrao_paths:
                         file_path_to_open = st.session_state.fichas_padrao_paths[ficha_solicitada]
-                    # Tenta encontrar em fichas uploadadas
                     elif ficha_solicitada in st.session_state.uploaded_fichas_data:
                         file_path_to_open = st.session_state.uploaded_fichas_data[ficha_solicitada]["path"]
                     
                     if file_path_to_open:
-                        if file_path_to_open not in st.session_state.fichas_pdf_content_cache:
-                            st.session_state.fichas_pdf_content_cache[file_path_to_open] = read_pdf_text(file_path_to_open)
-                        
                         if file_path_to_open not in st.session_state.fichas_pdf_images_cache:
                             st.session_state.fichas_pdf_images_cache[file_path_to_open] = get_pdf_images(file_path_to_open)
                         st.session_state.current_pdf_images = st.session_state.fichas_pdf_images_cache[file_path_to_open]
@@ -243,10 +225,11 @@ else:
                         st.session_state.tipo_ficha_aberta = ficha_solicitada
                         st.session_state.transcricao_geral = ""
                         
-                        for key in FORM_FIELDS_MAP.values():
-                            st.session_state[key] = "" 
+                        # REMOVIDO o loop para resetar campos específicos
+                        # for key in FORM_FIELDS_MAP.values():
+                        #     st.session_state[key] = "" 
                         
-                        st.session_state.active_form_field = None
+                        # st.session_state.active_form_field = None # Não é mais necessário
                         st.success(f"Ficha '{ficha_solicitada.title()}' aberta. Veja o PDF como guia e insira as respostas abaixo.")
                         st.rerun()
                         comando_processado = True
@@ -271,12 +254,13 @@ else:
                             st.session_state.tipo_ficha_aberta = tipo_ficha_falado
                             st.session_state.transcricao_geral = st.session_state.pacientes[found_patient][tipo_ficha_falado]
                             
-                            st.session_state.current_pdf_images = [] # Limpa imagens de PDF ao abrir ficha de paciente
+                            st.session_state.current_pdf_images = []
                             
-                            for key in FORM_FIELDS_MAP.values():
-                                st.session_state[key] = ""
+                            # REMOVIDO o loop para resetar campos específicos
+                            # for key in FORM_FIELDS_MAP.values():
+                            #     st.session_state[key] = ""
                             
-                            st.session_state.active_form_field = None
+                            # st.session_state.active_form_field = None # Não é mais necessário
                             st.success(f"Ficha '{tipo_ficha_falado.title()}' do paciente '{found_patient.title()}' aberta e texto carregado!")
                             st.rerun()
                             comando_processado = True
@@ -294,91 +278,39 @@ else:
                     st.session_state.tipo_ficha_aberta = f"Nova: {tipo_nova_ficha}"
                     st.session_state.transcricao_geral = ""
                     
-                    st.session_state.current_pdf_images = [] # Limpa imagens de PDF para nova ficha
+                    st.session_state.current_pdf_images = []
                     
-                    for key in FORM_FIELDS_MAP.values():
-                        st.session_state[key] = ""
+                    # REMOVIDO o loop para resetar campos específicos
+                    # for key in FORM_FIELDS_MAP.values():
+                    #     st.session_state[key] = ""
                     
-                    st.session_state.active_form_field = FORM_FIELDS_ORDER[0] if FORM_FIELDS_ORDER else None
-                    if st.session_state.active_form_field:
-                        st.info(f"Preparando para nova ficha: '{tipo_nova_ficha.title()}'. Comece a ditar no campo **{st.session_state.active_form_field.replace('_', ' ').title()}**.")
-                    else:
-                        st.info(f"Preparando para nova ficha: '{tipo_nova_ficha.title()}'. Não há campos definidos. Dite em observações gerais.")
+                    # st.session_state.active_form_field = None # Não é mais necessário
+                    st.info(f"Preparando para nova ficha: '{tipo_nova_ficha.title()}'. Dite em observações gerais.")
                     st.rerun()
                     comando_processado = True
 
-                match_preencher_campo = re.search(r"preencher (.+)", texto_transcrito_lower)
-                if match_preencher_campo and not comando_processado:
-                    campo_falado = match_preencher_campo.group(1).strip()
-                    found_field_key = None
-                    for friendly_name, field_key in FORM_FIELDS_MAP.items():
-                        if campo_falado in friendly_name:
-                            found_field_key = field_key
-                            break
-                    
-                    if found_field_key:
-                        st.session_state.active_form_field = found_field_key
-                        comando_processado = True
-                        st.session_state.last_transcription_segment = ""
-                        st.rerun()
-                    else:
-                        st.warning(f"Campo '{campo_falado.title()}' não reconhecido.")
-                        comando_processado = True
+                # REMOVIDA A LÓGICA DE ATIVAÇÃO DE CAMPO POR VOZ
+                # match_preencher_campo = re.search(r"preencher (.+)", texto_transcrito_lower)
+                # if match_preencher_campo and not comando_processado:
+                #     campo_falado = match_preencher_campo.group(1).strip()
+                #     # ... (lógica de busca e ativação de campo que não usaremos mais)
 
-                if "proximo campo" in texto_transcrito_lower and not comando_processado:
-                    if st.session_state.active_form_field:
-                        current_index = FORM_FIELDS_ORDER.index(st.session_state.active_form_field)
-                        if current_index < len(FORM_FIELDS_ORDER) - 1:
-                            st.session_state.active_form_field = FORM_FIELDS_ORDER[current_index + 1]
-                            st.info(f"Campo ativo alterado para: **{st.session_state.active_form_field.replace('_', ' ').title()}**")
-                        else:
-                            st.info("Você está no último campo do formulário.")
-                            st.session_state.active_form_field = None
-                    else:
-                        if FORM_FIELDS_ORDER:
-                            st.session_state.active_form_field = FORM_FIELDS_ORDER[0]
-                            st.info(f"Ativando primeiro campo: **{st.session_state.active_form_field.replace('_', ' ').title()}**")
-                        else:
-                            st.warning("Não há campos definidos no formulário.")
-                    comando_processado = True
-                    st.session_state.last_transcription_segment = ""
-                    st.rerun()
+                # REMOVIDA A NAVEGAÇÃO ENTRE CAMPOS
+                # if "proximo campo" in texto_transcrito_lower and not comando_processado:
+                #     # ... (lógica de próximo campo)
+                # if "campo anterior" in texto_transcrito_lower and not comando_processado:
+                #     # ... (lógica de campo anterior)
 
-                if "campo anterior" in texto_transcrito_lower and not comando_processado:
-                    if st.session_state.active_form_field:
-                        current_index = FORM_FIELDS_ORDER.index(st.session_state.active_form_field)
-                        if current_index > 0:
-                            st.session_state.active_form_field = FORM_FIELDS_ORDER[current_index - 1]
-                            st.info(f"Campo ativo alterado para: **{st.session_state.active_form_field.replace('_', ' ').title()}**")
-                        else:
-                            st.info("Você já está no primeiro campo do formulário.")
-                    else:
-                        if FORM_FIELDS_ORDER:
-                            st.session_state.active_form_field = FORM_FIELDS_ORDER[-1]
-                            st.info(f"Ativando último campo: **{st.session_state.active_form_field.replace('_', ' ').title()}**")
-                        else:
-                            st.warning("Não há campos definidos no formulário.")
-                    comando_processado = True
-                    st.session_state.last_transcription_segment = ""
-                    st.rerun()
-
-                if ("parar preenchimento" in texto_transcrito_lower or
-                    "sair do campo" in texto_transcrito_lower) and not comando_processado:
-                    if st.session_state.active_form_field:
-                        st.info(f"Saindo do campo **{st.session_state.active_form_field.replace('_', ' ').title()}**.")
-                        st.session_state.active_form_field = None
-                        st.session_state.last_transcription_segment = ""
-                        st.rerun()
-                        comando_processado = True
-                    else:
-                        st.warning("Nenhum campo específico está ativo para sair.")
-                        comando_processado = True
+                # REMOVIDA A SAÍDA DE CAMPO
+                # if ("parar preenchimento" in texto_transcrito_lower or
+                #     "sair do campo" in texto_transcrito_lower) and not comando_processado:
+                #     # ... (lógica de sair do campo)
 
                 if not comando_processado and st.session_state.listening_active:
-                    if st.session_state.active_form_field:
-                        st.session_state[st.session_state.active_form_field] += " " + texto_transcrito_segmento
-                    else:
-                        st.session_state.transcricao_geral += " " + texto_transcrito_segmento
+                    # Agora, toda a transcrição vai para o campo geral
+                    st.session_state.transcricao_geral += " " + texto_transcrito_segmento
+                    # st.rerun() # Adicionado rerun para atualizar o texto imediatamente (pode causar mais reruns)
+
 
                 self.buffer = b""
 
@@ -426,27 +358,24 @@ else:
         # --- SELEÇÃO DE FICHAS MODELO (Padrão e Uploadadas) ---
         st.subheader("Abrir Ficha Modelo (PDF)")
         
-        # Combinar as listas de fichas padrão e uploadadas para o selectbox
         all_template_fichas = {}
-        # Adiciona fichas padrão (agora vazias por padrão)
         for name, path in st.session_state.fichas_padrao_paths.items():
             if os.path.exists(path):
                 all_template_fichas[name.lower()] = {"name": name, "path": path}
         
-        # Adiciona fichas uploadadas, sobrescrevendo se houver conflito de nome
         keys_to_remove = []
         for key, info in st.session_state.uploaded_fichas_data.items():
             if os.path.exists(info['path']):
-                all_template_fichas[key] = info # Key já está em lower()
+                all_template_fichas[key] = info
             else:
-                keys_to_remove.append(key) # Marca para remoção
+                keys_to_remove.append(key)
         
         for key in keys_to_remove:
             st.warning(f"Ficha Modelo '{st.session_state.uploaded_fichas_data[key]['name']}' não encontrada em '{st.session_state.uploaded_fichas_data[key]['path']}'. Será removida da lista.")
             del st.session_state.uploaded_fichas_data[key]
         if keys_to_remove:
             save_uploaded_templates_index(st.session_state.uploaded_fichas_data)
-            st.rerun() # Recarrega para refletir as remoções
+            st.rerun()
         
         template_ficha_options = [""] + sorted([info["name"].title() for info in all_template_fichas.values()])
         selected_template_ficha_name = st.selectbox(
@@ -455,7 +384,7 @@ else:
             key="select_template_ficha"
         )
 
-        if selected_template_ficha_name and st.button(f"Abrir Ficha Modelo Selecionada", key="btn_open_selected_template"): # Botão mais claro
+        if selected_template_ficha_name and st.button(f"Abrir Ficha Modelo Selecionada", key="btn_open_selected_template"):
             selected_ficha_path = None
             for key, info in all_template_fichas.items():
                 if info["name"].lower() == selected_template_ficha_name.lower():
@@ -470,15 +399,16 @@ else:
                 st.session_state.paciente_atual = None
                 st.session_state.tipo_ficha_aberta = selected_template_ficha_name.lower()
                 st.session_state.transcricao_geral = ""
-                for key in FORM_FIELDS_MAP.values():
-                    st.session_state[key] = ""
-                st.session_state.active_form_field = None
+                # REMOVIDO o reset dos campos fixos
+                # for key in FORM_FIELDS_MAP.values():
+                #     st.session_state[key] = ""
+                # st.session_state.active_form_field = None # Não é mais necessário
                 st.success(f"Ficha modelo '{selected_template_ficha_name}' aberta. Veja o PDF como guia e insira as respostas abaixo.")
                 st.rerun()
             else:
                 st.error("Erro ao encontrar o caminho da ficha selecionada.")
 
-        # --- Opção para deletar fichas salvas (mantido como checkbox para ocultar/exibir) ---
+        # --- Opção para deletar fichas salvas ---
         if st.checkbox("Gerenciar Fichas Modelos Salvas (Deletar)"):
             if st.session_state.uploaded_fichas_data:
                 ficha_keys_to_delete = list(st.session_state.uploaded_fichas_data.keys())
@@ -522,10 +452,11 @@ else:
                 st.session_state.tipo_ficha_aberta = f"Nova: {nova_ficha_tipo.strip()}"
                 st.session_state.transcricao_geral = ""
                 st.session_state.current_pdf_images = []
-                for key in FORM_FIELDS_MAP.values():
-                    st.session_state[key] = ""
-                st.session_state.active_form_field = FORM_FIELDS_ORDER[0] if FORM_FIELDS_ORDER else None
-                st.success(f"Nova ficha '{nova_ficha_tipo.title()}' criada!")
+                # REMOVIDO o reset dos campos fixos
+                # for key in FORM_FIELDS_MAP.values():
+                #     st.session_state[key] = ""
+                # st.session_state.active_form_field = None # Não é mais necessário
+                st.success(f"Nova ficha '{nova_ficha_tipo.title()}' criada! Comece a ditar em observações gerais.")
                 st.rerun()
             else:
                 st.warning("Por favor, digite o nome da nova ficha.")
@@ -549,9 +480,10 @@ else:
                     st.session_state.tipo_ficha_aberta = ficha_paciente_selecionada
                     st.session_state.transcricao_geral = st.session_state.pacientes[paciente_selecionado_ui][ficha_paciente_selecionada]
                     st.session_state.current_pdf_images = []
-                    for key in FORM_FIELDS_MAP.values():
-                        st.session_state[key] = ""
-                    st.session_state.active_form_field = None
+                    # REMOVIDO o reset dos campos fixos
+                    # for key in FORM_FIELDS_MAP.values():
+                    #     st.session_state[key] = ""
+                    # st.session_state.active_form_field = None # Não é mais necessário
                     st.success(f"Ficha '{ficha_paciente_selecionada.title()}' do paciente '{paciente_selecionado_ui.title()}' aberta e texto carregado!")
                     st.rerun()
                 else:
@@ -561,28 +493,26 @@ else:
         st.header("Controle de Microfone")
 
         # Configuração do WebRTC
-        if "webrtc_initialized" not in st.session_state or not st.session_state.webrtc_initialized:
-            st.session_state.webrtc_initialized = True
-            # Inicializa a conexão WebRTC fora do col2 para garantir que o componente seja renderizado corretamente
-            # e a UI não seja bloqueada pela chamada a reruns logo no início.
-            # O st.empty() é para segurar o lugar do webrtc_streamer sem que ele seja renderizado duas vezes
-            # (uma vez durante a inicialização e outra vez dentro do `with col2:`).
-            webrtc_ctx = webrtc_streamer(
-                key="audio_recorder",
-                mode=WebRtcMode.SENDONLY,
-                audio_processor_factory=AudioProcessor,
-                rtc_configuration=RTCConfiguration(
-                    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-                ),
-                media_stream_constraints={"video": False, "audio": True},
-                async_processing=True,
-            )
+        # A chamada a webrtc_streamer precisa ocorrer a cada rerun para o componente funcionar.
+        # No entanto, a lógica de inicialização de estados internos (como webrtc_initialized)
+        # deve ser controlada para evitar chamadas duplicadas ou indesejadas.
+        webrtc_ctx = webrtc_streamer(
+            key="audio_recorder_streamer",
+            mode=WebRtcMode.SENDONLY,
+            audio_processor_factory=AudioProcessor,
+            rtc_configuration=RTCConfiguration(
+                {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+            ),
+            media_stream_constraints={"video": False, "audio": True},
+            async_processing=True,
+        )
+        
+        # Atualiza o status do microfone em cada rerun baseado no webrtc_ctx
+        if webrtc_ctx.state.playing:
+            st.session_state.mic_status_message = "🟢 Microfone Conectado (Ouvindo)"
+        else:
+            st.session_state.mic_status_message = "🔴 Microfone Desconectado"
 
-            if webrtc_ctx.state.playing:
-                st.session_state.mic_status_message = "🟢 Microfone Conectado (Ouvindo)"
-            else:
-                st.session_state.mic_status_message = "🔴 Microfone Desconectado"
-            st.rerun() # Garante que a UI atualize o status do microfone
 
         if st.session_state.listening_active:
             if st.button("Pausar Anotação de Voz ⏸️", key="btn_pause_listening"):
@@ -616,9 +546,10 @@ else:
         if st.session_state.last_transcription_segment:
             st.markdown(f"<p style='color: grey; font-size: 0.9em;'><i>Última transcrição: \"{st.session_state.last_transcription_segment}\"</i></p>", unsafe_allow_html=True)
 
-        if st.session_state.active_form_field:
-            friendly_name_active = next((k for k, v in FORM_FIELDS_MAP.items() if v == st.session_state.active_form_field), st.session_state.active_form_field)
-            st.info(f"Ditando em: **{friendly_name_active.replace('_', ' ').title()}**")
+        # A mensagem de "Ditando em:" não é mais necessária, pois não há campos específicos
+        # if st.session_state.active_form_field:
+        #     friendly_name_active = next((k for k, v in FORM_FIELDS_MAP.items() if v == st.session_state.active_form_field), st.session_state.active_form_field)
+        #     st.info(f"Ditando em: **{friendly_name_active.replace('_', ' ').title()}**")
 
         # Exibe as imagens do PDF se houver alguma ficha PDF aberta
         if st.session_state.current_pdf_images:
@@ -627,16 +558,16 @@ else:
                 st.image(img, caption=f"Página {i+1} do PDF", use_column_width=True)
             st.markdown("---")
 
-        # Os campos específicos do formulário e o campo geral abaixo das imagens do PDF
-        for friendly_name_display, field_key in FORM_FIELDS_MAP.items():
-            st.text_area(
-                f"{friendly_name_display.title()}:",
-                value=st.session_state[field_key],
-                key=field_key,
-                height=150,
-                help=f"Diga 'preencher {friendly_name_display}' para ativar este campo.",
-                disabled=(st.session_state.active_form_field != field_key)
-            )
+        # REMOVIDO o loop para renderizar campos específicos
+        # for friendly_name_display, field_key in FORM_FIELDS_MAP.items():
+        #     st.text_area(
+        #         f"{friendly_name_display.title()}:",
+        #         value=st.session_state[field_key],
+        #         key=field_key,
+        #         height=150,
+        #         help=f"Diga 'preencher {friendly_name_display}' para ativar este campo.",
+        #         disabled=(st.session_state.active_form_field != field_key)
+        #     )
 
         st.markdown("---")
         st.subheader("Observações Gerais da Ficha")
@@ -645,7 +576,7 @@ else:
             value=st.session_state.transcricao_geral,
             key="transcricao_geral",
             height=300,
-            disabled=(st.session_state.active_form_field is not None)
+            # disabled=(st.session_state.active_form_field is not None) # Não é mais necessário, sempre habilitado
         )
 
         st.markdown("---")
@@ -657,8 +588,7 @@ else:
                     st.success(f"Ficha de '{st.session_state.tipo_ficha_aberta.title()}' do paciente '{st.session_state.paciente_atual.title()}' atualizada com sucesso!")
                 elif st.session_state.tipo_ficha_aberta.startswith("Nova:"):
                     # Salva como nova ficha para um NOVO paciente (ou adiciona a um existente)
-                    # TODO: Implementar UI para selecionar/criar paciente ao salvar nova ficha
-                    new_patient_name = st.text_input("Nome do Paciente para Salvar:", key="new_patient_name_save")
+                    new_patient_name = st.text_input("Nome do Paciente para Salvar:", key="new_patient_name_save_on_save_button")
                     if new_patient_name:
                         patient_key = new_patient_name.lower().strip()
                         if patient_key not in st.session_state.pacientes:
@@ -676,29 +606,3 @@ else:
                     st.warning("Não é possível salvar a ficha. Abra uma ficha existente de paciente ou crie uma nova ficha em branco.")
         else:
             st.info("Abra ou crie uma ficha para começar a ditar.")
-
-    # Inicia o webrtc_streamer APENAS UMA VEZ
-    # Se você colocá-lo dentro de um bloco condicional que pode ser 'False' após um rerun, ele não inicia.
-    # Coloquei o st.empty() para "segurar" o lugar do webrtc_streamer na UI.
-    # O webrtc_streamer precisa ser chamado a cada execução do script Streamlit, mas sua inicialização lógica
-    # (carregar o modelo, etc.) deve ser controlada por `st.session_state.webrtc_initialized`.
-    _webrtc_placeholder = st.empty() # Placeholder para o webrtc_streamer
-
-    # Esta é a parte que deve ser chamada em CADA rerun para manter o componente ativo
-    # Mas a lógica de inicialização do contexto deve ser cuidada como acima.
-    webrtc_ctx = webrtc_streamer(
-        key="audio_recorder_streamer", # Um novo key para o streamer, para evitar conflitos com o webrtc_initialized.
-        mode=WebRtcMode.SENDONLY,
-        audio_processor_factory=AudioProcessor,
-        rtc_configuration=RTCConfiguration(
-            {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-        ),
-        media_stream_constraints={"video": False, "audio": True},
-        async_processing=True,
-    )
-
-    # Atualiza o status do microfone em cada rerun baseado no webrtc_ctx
-    if webrtc_ctx.state.playing:
-        st.session_state.mic_status_message = "🟢 Microfone Conectado (Ouvindo)"
-    else:
-        st.session_state.mic_status_message = "🔴 Microfone Desconectado"
