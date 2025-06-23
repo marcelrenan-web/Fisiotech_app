@@ -1,8 +1,1 @@
-seu_repositorio/
-├── seu_script.py
-├── requirements.txt
-├── Ficha de Avaliação de Fisioterapia nova - Documentos Google.pdf  <-- COLOQUE AQUI
-├── data/
-│   ├── uploaded_fichas_templates/  <-- ESTA PASTA DEVE ESTAR VAZIA NO GITHUB (ou com .gitkeep)
-│   └── saved_patient_records/     <-- ESTA PASTA DEVE ESTAR VAZIA NO GITHUB (ou com .gitkeep)
-│   └── uploaded_fichas_index.json  <-- ESTE ARQUIVO DEVE CONTER APENAS `{}` NO GITHUB
+
